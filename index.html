@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Staff Tracker - Hours on Bars</title>
+    <title>Schedule Graph</title>
     <style>
         :root { 
             --primary: #2c3e50; --accent: #3498db; --bg: #f8f9fa; 
@@ -103,10 +103,11 @@
 
 <header>
     <div class="area-select-container">
-        <span style="font-weight: bold; font-size: 1.2rem;">Staff Scheduler</span>
+        <span style="font-weight: bold; font-size: 1.2rem;">Schedule Graph</span>
         <select id="areaSelector" onchange="loadDateData()">
             <option>Area 1</option><option>Area 2</option><option>Area 3</option><option>Area 4</option>
             <option>Area 5</option><option>Area 6</option><option>Area 7</option><option>Area 8</option>
+            <option>TMU</option>
         </select>
     </div>
     <button style="background:#27ae60; color:white; padding: 8px 20px;" onclick="window.print()">Print Graph</button>
@@ -314,8 +315,6 @@
             bar.className = 'shift-bar' + (isActive ? '' : ' inactive-bar');
             bar.style.left = (displayStart / TOTAL_HOURS * 100) + '%';
             bar.style.width = (displayDuration / TOTAL_HOURS * 100) + '%';
-            
-            // Updated innerHTML to include duration
             bar.innerHTML = `<span class="bar-text">${s.initials} (${s.startRaw}-${endStr}) (${s.duration}hr)${!isActive ? ' [INACTIVE]' : ''}</span>`;
             
             if (showHandover && handoverPoint >= sOff && handoverPoint < eOff) {
