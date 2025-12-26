@@ -119,9 +119,8 @@
         .btn-del { background: #e74c3c; color: white; padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; }
         .btn-leave { background: #95a5a6; color: white; padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; }
         
-        /* Updated Leave Tag Sizes */
         .registry-leave-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-        .registry-leave-tag { background: #7f8c8d; color: white; padding: 3px 7px; border-radius: 4px; font-size: 10px; display: flex; align-items: center; gap: 5px; font-weight: bold; }
+        .registry-leave-tag { background: #34495e; color: white; padding: 3px 7px; border-radius: 4px; font-size: 10px; display: flex; align-items: center; gap: 5px; font-weight: bold; }
         .btn-del-leave { cursor: pointer; font-weight: bold; font-size: 12px; border: none; background: transparent; height: auto; width: auto; padding: 0; color: white; line-height: 1; }
         .btn-del-leave:hover { color: #ff7675; }
 
@@ -446,7 +445,11 @@
                 </div>
             </div>`;
         });
-        counts.forEach((c, i) => document.getElementById(`cap-${i}`).innerText = c || '-');
+        counts.forEach((c, i) => {
+            const cell = document.getElementById(`cap-${i}`);
+            cell.innerText = c || '-';
+            cell.title = `Staff count: ${c || 0}`;
+        });
         updateNowLine();
     }
 
