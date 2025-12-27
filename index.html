@@ -14,119 +14,101 @@
             --border: #dee2e6;
             --inactive: #bdc3c7; 
             --now: #e74c3c;
+            --draft-color: #9b59b6;
         }
         
         body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; background-color: #e9ecef; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
         /* PRINT STYLES */
         @media print {
-            @page { size: landscape; margin: 0.4cm; }
-            header, .controls, .sidebar, #pasteOverlay, .btn-clear, .item-actions, .status-select, #nowLine, .shortcut-hint { display: none !important; }
-            html, body { height: auto !important; width: 100% !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; background: white !important; }
-            .main-layout { display: block !important; width: 100% !important; padding: 0 !important; }
-            .work-area { width: 100% !important; display: block !important; }
+            @page { size: landscape; margin: 0.5cm; }
+            header, .controls, #pasteOverlay, .btn-clear, .btn-undo, .item-actions, .status-select, #nowLine, #draftBadge, #bigDraftWarning, #btnCommitDraft, .sidebar { display: none !important; }
+            html, body { height: auto !important; overflow: visible !important; background: white !important; }
+            .main-layout { display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; zoom: 0.9; }
+            .work-area { width: 100% !important; }
             .print-header { display: block !important; font-size: 16pt; margin-bottom: 10px; font-weight: 600; text-align: center; }
-            .timeline-container { width: 100% !important; border: 2px solid #000 !important; display: block !important; background: white !important; position: relative; }
-            .grid-wrapper { width: 100% !important; display: block !important; position: relative; }
-            
-            .labels, .capacity-row { 
-                width: 100% !important; 
-                display: grid !important; 
-                grid-template-columns: repeat(22, 1fr) !important; 
-                background: white !important; 
-            }
-            .hour-label, .cap-cell { 
-                font-size: 12pt !important; 
-                font-weight: 600 !important; 
-                padding: 6px 0 !important; 
-                border-right: 1px solid #000 !important; 
-                border-bottom: 2px solid #000 !important; 
-            }
-            
-            .chart-area { 
-                width: 100% !important; 
-                display: block !important; 
-                padding-top: 20px !important; 
-                background: white !important; 
-                position: relative;
-                min-height: 500px;
-            }
-
-            .print-v-line {
-                display: block !important;
-                position: absolute;
-                top: 0;
-                bottom: 0;
-                width: 1px;
-                z-index: 0;
-                border-left: 1px solid #ddd !important; 
-            }
-            
-            .shift-row { position: relative !important; width: 100% !important; height: 26px !important; margin-bottom: 4px !important; border-bottom: none !important; z-index: 1; }
-            .shift-bar { height: 100% !important; top: 0 !important; border: 1.5px solid #000 !important; box-sizing: border-box !important; border-radius: 4px !important; background-color: var(--accent) !important; -webkit-print-color-adjust: exact; }
-            .bar-text { font-size: 13pt !important; font-weight: 600 !important; color: #000 !important; } 
-            .leave-overlay { font-size: 10pt !important; font-weight: 600 !important; color: white !important; background-color: var(--leave) !important; -webkit-print-color-adjust: exact; }
+            .timeline-container { border: 2px solid #000 !important; background: white !important; overflow: visible !important; }
+            .scrollable-timeline { overflow: visible !important; }
+            .grid-wrapper { width: 100% !important; min-width: 0 !important; }
+            .labels, .capacity-row { display: grid !important; grid-template-columns: repeat(22, 1fr) !important; background: white !important; }
+            .hour-label, .cap-cell { font-size: 10pt !important; border-right: 1px solid #000 !important; border-bottom: 2px solid #000 !important; }
+            .chart-area { min-height: 400px !important; background: white !important; }
+            .shift-bar { border: 1.5px solid #000 !important; -webkit-print-color-adjust: exact; }
+            .bar-text { position: static !important; } 
+            .leave-overlay { background-color: var(--leave) !important; -webkit-print-color-adjust: exact; }
         }
 
-        /* SCREEN ONLY STYLES */
-        .print-v-line { display: none; }
-        .print-header { display: none; }
-        header { background: var(--primary); color: white; padding: 0.8rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        /* SCREEN STYLES */
+        header { background: var(--primary); color: white; padding: 0.8rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; position: relative; }
         .area-select-container { display: flex; align-items: center; gap: 10px; }
         #areaSelector { padding: 6px 12px; border-radius: 4px; border: none; font-weight: bold; background: #ecf0f1; color: var(--primary); cursor: pointer; }
+        #bigDraftWarning { display: none; position: absolute; left: 50%; transform: translateX(-50%); color: #ff3e3e; font-size: 28px; font-weight: 900; letter-spacing: 5px; pointer-events: none; z-index: 100; }
         .main-layout { display: flex; flex: 1; overflow: hidden; padding: 15px; gap: 15px; min-height: 0; }
         .work-area { flex: 3; display: flex; flex-direction: column; gap: 15px; min-width: 0; height: 100%; }
         .timeline-container { background: white; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; flex: 1; overflow: hidden; }
         .scrollable-timeline { overflow-x: auto; overflow-y: auto; flex: 1; position: relative; }
-        .grid-wrapper { position: relative; overflow: hidden; min-width: 1400px; width: 100%; }
+        .grid-wrapper { position: relative; min-width: 1400px; width: 100%; }
         .labels, .capacity-row { display: grid; grid-template-columns: repeat(22, 1fr); width: 100%; }
         .labels { background: #f1f3f5; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
         .capacity-row { background: #fffbe6; border-bottom: 2px solid var(--border); font-weight: bold; color: #856404; position: sticky; top: 31px; z-index: 10; }
         .hour-label, .cap-cell { font-size: 11px; text-align: center; padding: 8px 0; border-right: 1px solid #dee2e6; }
-        .chart-area { position: relative; width: 100%; min-height: 600px; background-image: linear-gradient(to right, #f1f3f5 1px, transparent 1px); background-size: calc(100% / 22) 100%; overflow: hidden; }
+        .chart-area { position: relative; width: 100%; min-height: 600px; background-image: linear-gradient(to right, #f1f3f5 1px, transparent 1px); background-size: calc(100% / 22) 100%; }
         
         #nowLine { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--now); z-index: 20; pointer-events: none; }
         #nowLine::after { content: 'NOW'; position: absolute; top: 0; left: 2px; background: var(--now); color: white; font-size: 8px; padding: 1px 3px; border-radius: 0 0 3px 0; font-weight: bold; }
 
-        .controls { background: white; padding: 15px; border-radius: 8px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; flex-shrink: 0; }
-        .row-full { grid-column: 1 / -1; display: grid; grid-template-columns: 1.5fr 4.5fr; gap: 10px; margin-bottom: 5px; }
-        
+        .controls { background: white; padding: 15px; border-radius: 8px; display: grid; grid-template-columns: auto auto auto auto auto auto 1fr auto auto; gap: 10px; align-items: end; flex-shrink: 0; }
         .input-group { display: flex; flex-direction: column; gap: 4px; height: 100%; justify-content: flex-end; }
         label { font-size: 9px; font-weight: bold; color: #495057; text-transform: uppercase; }
-        .shortcut-hint { font-size: 9px; color: #2c3e50; font-weight: bold; margin-bottom: 2px; text-align: center; }
         input { padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
         
-        button { padding: 9px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; transition: background 0.2s; height: 35px; width: 100%; box-sizing: border-box; }
+        #multiInitials { width: 13ch; }
+
+        button { padding: 9px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; height: 35px; width: 100%; box-sizing: border-box; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-add { background: #3498db; color: white; min-width: 100px; }
+        .btn-clear { background: #e74c3c; color: white; min-width: 80px; }
+        .btn-undo { background: #7f8c8d; color: white; min-width: 80px; }
+        .btn-draft { background: var(--draft-color); color: white; }
+        .btn-commit { background: #c0392b; color: white; }
+        .btn-clear-draft { background: #bdc3c7; color: #333; }
         
-        .btn-paste-primary { background: #e67e22; color: white; }
-        .btn-add { background: #3498db; color: white; }
-        .btn-clear { background: #e74c3c; color: white; }
-        
+        .spacer { grid-column: 7; }
+
         .shift-row { position: relative; height: 24.2px; border-bottom: 1px solid #f1f3f5; width: 100%; }
-        .shift-bar { position: absolute; height: 18.15px; top: 3.025px; background: var(--accent); color: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; padding: 0 4px; font-size: 11px; font-weight: bold; white-space: nowrap; box-sizing: border-box; box-shadow: 1px 1px 3px rgba(0,0,0,0.1); text-align: center; overflow: hidden; z-index: 1; }
+        .shift-bar { position: absolute; height: 18.15px; top: 3.025px; background: var(--accent); color: #000; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; box-sizing: border-box; box-shadow: 1px 1px 3px rgba(0,0,0,0.1); z-index: 1; display: flex; align-items: center; overflow: hidden; }
         
-        .shift-bar.inactive-bar { background: var(--inactive); color: #7f8c8d; box-shadow: none; border: 1px solid #95a5a6; }
-        .bar-text { position: relative; z-index: 10; pointer-events: none; width: 100%; display: block; }
-        .handover-overlay { position: absolute; height: 100%; top:0; background: var(--handover); z-index: 5; pointer-events: none; border-radius: 0; }
-        .leave-overlay { position: absolute; height: 100%; top: 0; z-index: 6; pointer-events: none; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; letter-spacing: 0.5px; font-weight: 900; background: var(--leave); }
-        
+        .bar-text { 
+            position: sticky;
+            left: 0;
+            right: 0;
+            width: 100%;
+            display: inline-block;
+            text-align: center;
+            flex-shrink: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .draft-bar { border: 2px dashed #4a148c; }
+        .shift-bar.inactive-bar { background: var(--inactive); color: #7f8c8d; }
+        .handover-overlay { position: absolute; height: 100%; top:0; background: var(--handover); z-index: 5; pointer-events: none; }
+        .leave-overlay { position: absolute; height: 100%; top: 0; z-index: 6; pointer-events: none; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 900; background: var(--leave); text-align: center; line-height: 1; white-space: nowrap; }
         .sidebar { flex: 1; background: white; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; max-width: 250px; flex-shrink: 0; }
         .shift-list { flex: 1; overflow-y: auto; padding: 10px; }
         .list-item { padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 11px; position: relative; }
-        .status-select { font-size: 9px; padding: 2px; border-radius: 3px; border: 1px solid #ccc; margin-left: 5px; cursor: pointer; }
+        .registry-leave-container { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .registry-leave-tag { background: #34495e; color: white; padding: 3px 7px; border-radius: 4px; font-size: 10px; display: flex; align-items: center; gap: 5px; font-weight: bold; white-space: nowrap; }
+        .btn-del-leave { cursor: pointer; border: none; background: transparent; color: white; font-weight: bold; font-size: 12px; line-height: 1; }
         .item-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-        .btn-edit { background: #f1c40f; color: black; padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; }
-        .btn-del { background: #e74c3c; color: white; padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; }
-        .btn-leave { background: #95a5a6; color: white; padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; }
-        
-        .registry-leave-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-        .registry-leave-tag { background: #34495e; color: white; padding: 3px 7px; border-radius: 4px; font-size: 10px; display: flex; align-items: center; gap: 5px; font-weight: bold; }
-        .btn-del-leave { cursor: pointer; font-weight: bold; font-size: 12px; border: none; background: transparent; height: auto; width: auto; padding: 0; color: white; line-height: 1; }
-        .btn-del-leave:hover { color: #ff7675; }
-
+        .btn-edit, .btn-del, .btn-leave { padding: 3px 6px; border-radius: 3px; font-size: 9px; height: auto; width: auto; color: white; }
+        .btn-edit { background: #f1c40f; color: black; }
+        .btn-del { background: #e74c3c; }
+        .btn-leave { background: #95a5a6; }
+        .status-select { font-size: 10px; padding: 2px; border-radius: 3px; border: 1px solid var(--border); }
         #pasteOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: none; justify-content: center; align-items: center; }
         .paste-modal { background: white; padding: 20px; border-radius: 12px; width: 600px; display: flex; flex-direction: column; gap: 10px; }
-        textarea { width: 100%; height: 180px; font-family: monospace; font-size: 12px; resize: none; border: 1px solid #ccc; padding: 8px; }
+        textarea { width: 100%; height: 180px; font-family: monospace; font-size: 12px; border: 1px solid #ccc; padding: 8px; }
     </style>
 </head>
 <body>
@@ -134,7 +116,6 @@
 <div id="pasteOverlay">
     <div class="paste-modal">
         <h3 style="margin: 0;">Smart Import</h3>
-        <div style="font-size: 11px; color: #2c3e50; font-weight: bold;">CTRL+C to copy &bull; CTRL+V to paste</div>
         <textarea id="bulkPasteInput" placeholder="Paste schedule or leave data here..."></textarea>
         <div style="display:flex; gap: 10px;">
             <button onclick="processPaste('schedule')" style="background: #3498db; color: white; flex: 1;">Submit Schedule</button>
@@ -153,7 +134,13 @@
             <option>TMU</option>
         </select>
     </div>
-    <button style="background:#27ae60; color:white; width: 120px;" onclick="window.print()">Print Graph</button>
+    <div id="bigDraftWarning">DRAFT</div>
+    <div style="display: flex; gap: 10px;">
+        <button id="btnCreateDraft" class="btn-draft" style="width: 120px;" onclick="enableDraftMode()">Create Draft</button>
+        <button id="btnCommitDraft" class="btn-commit" style="width: 130px; display: none;" onclick="commitDraft()">Replace Original</button>
+        <button id="btnClearDraft" class="btn-clear-draft" style="width: 120px; display: none;" onclick="loadDateData()">Discard Draft</button>
+        <button style="background:#27ae60; color:white; width: 120px;" onclick="window.print()">Print Graph</button>
+    </div>
 </header>
 
 <div class="main-layout">
@@ -161,21 +148,15 @@
         <div id="printInfo" class="print-header"></div>
         <div class="controls">
             <input type="hidden" id="editIndex" value="-1">
-            <div class="row-full">
-                <div class="input-group"><label>Date</label><input type="date" id="targetDate" onchange="loadDateData()"></div>
-                <div class="input-group">
-                    <label>Manual Entry (Initials separated by space)</label>
-                    <input type="text" id="multiInitials" placeholder="e.g. JS MD AB" tabindex="1">
-                </div>
-            </div>
-            <div class="input-group"><label>Start (HHmm)</label><input type="text" id="startTime" maxlength="4" placeholder="0800" tabindex="2"></div>
-            <div class="input-group"><label>Duration</label><input type="number" id="duration" step="0.5" value="8" tabindex="3"></div>
-            <div class="input-group"><button class="btn-add" id="addBtn" onclick="saveShift()" tabindex="4">Save Shift</button></div>
-            <div class="input-group">
-                <div class="shortcut-hint"><b>CTRL+C to copy / CTRL+V to paste</b></div>
-                <button onclick="togglePaste(true)" class="btn-paste-primary" tabindex="5">Paste Data</button>
-            </div>
-            <div class="input-group" style="grid-column: 6;"><button class="btn-clear" onclick="clearAllShifts()">Clear All</button></div>
+            <div class="input-group"><label>Date</label><input type="date" id="targetDate" onchange="loadDateData()"></div>
+            <div class="input-group"><label>Manual Entry</label><input type="text" id="multiInitials" placeholder="Initials"></div>
+            <div class="input-group"><label>Start</label><input type="text" id="startTime" maxlength="4" style="width: 60px;" placeholder="0800"></div>
+            <div class="input-group"><label>Dur</label><input type="number" id="duration" step="0.5" value="8" style="width: 50px;"></div>
+            <div class="input-group"><button class="btn-add" id="addBtn" onclick="saveShift()">Save Shift</button></div>
+            <div class="input-group"><button onclick="togglePaste(true)" style="background: #e67e22; color: white; min-width: 90px;">Paste Data</button></div>
+            <div class="spacer"></div>
+            <div class="input-group"><button class="btn-clear" onclick="clearAllShifts()">Clear All</button></div>
+            <div class="input-group"><button id="undoBtn" class="btn-undo" onclick="undo()" disabled>Undo</button></div>
         </div>
         <div class="timeline-container">
             <div class="scrollable-timeline">
@@ -197,10 +178,61 @@
 <script>
     const START_HOUR = 5, TOTAL_HOURS = 22;
     let shifts = [];
+    let historyStack = [];
+    let isDraft = false;
+
+    const bulkInput = document.getElementById('bulkPasteInput');
+    bulkInput.addEventListener('blur', () => {
+        if(document.getElementById('pasteOverlay').style.display === 'flex') {
+            setTimeout(() => bulkInput.focus(), 10);
+        }
+    });
+
+    function saveHistory() {
+        historyStack.push(JSON.stringify(shifts));
+        if (historyStack.length > 30) historyStack.shift();
+        updateUndoUI();
+    }
+
+    function undo() {
+        if (historyStack.length > 0) {
+            shifts = JSON.parse(historyStack.pop());
+            finishUpdate();
+        }
+    }
+
+    function updateUndoUI() {
+        document.getElementById('undoBtn').disabled = (historyStack.length === 0);
+    }
+
+    function enableDraftMode() {
+        if (isDraft) return;
+        isDraft = true;
+        document.getElementById('bigDraftWarning').style.display = 'block';
+        document.getElementById('btnCreateDraft').style.display = 'none';
+        document.getElementById('btnCommitDraft').style.display = 'block';
+        document.getElementById('btnClearDraft').style.display = 'block';
+        render();
+    }
+
+    function commitDraft() {
+        if(confirm("This will permanently overwrite your original schedule with this draft. Proceed?")) {
+            saveHistory();
+            isDraft = false;
+            finishUpdate();
+            document.getElementById('bigDraftWarning').style.display = 'none';
+            document.getElementById('btnCreateDraft').style.display = 'block';
+            document.getElementById('btnCommitDraft').style.display = 'none';
+            document.getElementById('btnClearDraft').style.display = 'none';
+        }
+    }
 
     function togglePaste(show) { 
-        document.getElementById('pasteOverlay').style.display = show ? 'flex' : 'none'; 
-        if(show) { document.getElementById('bulkPasteInput').value = ''; setTimeout(() => document.getElementById('bulkPasteInput').focus(), 50); }
+        const overlay = document.getElementById('pasteOverlay');
+        overlay.style.display = show ? 'flex' : 'none'; 
+        if(show) {
+            setTimeout(() => bulkInput.focus(), 50);
+        }
     }
 
     function updateNowLine() {
@@ -214,40 +246,33 @@
         if (offset >= 0 && offset <= TOTAL_HOURS) {
             line.style.display = 'block';
             line.style.left = (offset / TOTAL_HOURS * 100) + '%';
-        } else {
-            line.style.display = 'none';
-        }
+        } else { line.style.display = 'none'; }
     }
-
     setInterval(updateNowLine, 60000);
 
     function processPaste(type) {
-        const rawText = document.getElementById('bulkPasteInput').value;
+        saveHistory();
+        const rawText = bulkInput.value;
         const lines = rawText.split('\n');
         if (type === 'schedule') {
             let currentTime = "", currentDuration = 8;
             lines.forEach(line => {
-                const cleanLine = line.trim();
-                if (!cleanLine) return;
+                const cleanLine = line.trim(); if (!cleanLine) return;
                 const timeMatch = cleanLine.match(/(\d{1,2})?(\d{2}(00|30|45))/);
                 if (timeMatch) {
-                    currentTime = timeMatch[0].slice(-4); 
-                    // Added 9 to the duration capture list
+                    currentTime = timeMatch[0].slice(-4);
                     const durMatch = cleanLine.match(/-(6|7|9|10|12)/);
-                    currentDuration = durMatch ? parseInt(durMatch[1]) : 8;
-                    return; 
+                    currentDuration = durMatch ? parseInt(durMatch[1]) : 8; return;
                 }
-                const initialsRegex = /([A-Z]{2,3}\$?)/g;
-                let match;
+                const initialsRegex = /([A-Z]{2,3}\$?)/g; let match;
                 while ((match = initialsRegex.exec(cleanLine)) !== null) {
                     if (currentTime) shifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration, leave: [], status: 'active' });
                 }
             });
         } else {
             lines.forEach(line => {
-                const cleanLine = line.trim();
-                if (cleanLine.toLowerCase().includes("pending")) return;
-
+                const cleanLine = line.trim(); 
+                if (cleanLine.toLowerCase().includes("pending") || cleanLine.toLowerCase().includes("shift chg")) return;
                 const parts = cleanLine.split(/\s+/);
                 if(parts.length >= 5) {
                     const [init, lType, sTime, eTime, status] = [parts[0].toUpperCase(), parts[1].toUpperCase(), parts[2], parts[3], parts[4].toLowerCase()];
@@ -256,6 +281,7 @@
                 }
             });
         }
+        bulkInput.value = ''; 
         finishUpdate(); togglePaste(false);
     }
 
@@ -264,8 +290,7 @@
         labels.innerHTML = ''; capRow.innerHTML = '';
         for (let i = 0; i < TOTAL_HOURS; i++) {
             const h = (START_HOUR + i) % 24;
-            const hourStr = h.toString().padStart(2, '0') + "00";
-            labels.innerHTML += `<div class="hour-label">${hourStr}</div>`;
+            labels.innerHTML += `<div class="hour-label">${h.toString().padStart(2, '0')}00</div>`;
             capRow.innerHTML += `<div class="cap-cell" id="cap-${i}">0</div>`;
         }
     }
@@ -273,13 +298,16 @@
     function getStorageKey() { return `staff_data_${document.getElementById('targetDate').value}_${document.getElementById('areaSelector').value}`; }
 
     function loadDateData() {
+        isDraft = false;
+        historyStack = [];
+        updateUndoUI();
+        document.getElementById('bigDraftWarning').style.display = 'none';
+        document.getElementById('btnCreateDraft').style.display = 'block';
+        document.getElementById('btnCommitDraft').style.display = 'none';
+        document.getElementById('btnClearDraft').style.display = 'none';
         const key = getStorageKey(), area = document.getElementById('areaSelector').value, dateVal = document.getElementById('targetDate').value;
-        document.getElementById('sidebarHeader').innerText = `Registry: ${area}`;
-        
-        const dateInput = document.getElementById('targetDate').value;
-        const displayDate = dateInput ? new Date(dateInput + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "No Date Selected";
+        const displayDate = dateVal ? new Date(dateVal + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "No Date Selected";
         document.getElementById('printInfo').innerText = `${area} - ${displayDate}`;
-        
         shifts = JSON.parse(localStorage.getItem(key)) || [];
         render();
     }
@@ -296,148 +324,120 @@
         return h.toString().padStart(2, '0') + m.toString().padStart(2, '0');
     }
 
-    function mergeLeave(leaveArray) {
-        if (!leaveArray || leaveArray.length <= 1) return leaveArray;
-        const sorted = [...leaveArray].sort((a, b) => parseTimeInput(a.startRaw) - parseTimeInput(b.startRaw));
-        const merged = [];
-        let current = JSON.parse(JSON.stringify(sorted[0]));
-        for (let i = 1; i < sorted.length; i++) {
-            const next = sorted[i];
-            if (parseTimeInput(next.startRaw) <= parseTimeInput(current.endRaw)) {
-                if (parseTimeInput(next.endRaw) > parseTimeInput(current.endRaw)) {
-                    current.endRaw = next.endRaw;
-                }
-            } else {
-                merged.push(current);
-                current = JSON.parse(JSON.stringify(next));
-            }
-        }
-        merged.push(current);
-        return merged;
-    }
-    
     function saveShift() {
+        saveHistory();
         const input = document.getElementById('multiInitials').value.trim();
         const startRaw = document.getElementById('startTime').value;
         const duration = parseFloat(document.getElementById('duration').value);
         const editIdx = parseInt(document.getElementById('editIndex').value);
         if (input) {
-            const inits = input.split(/\s+/);
-            inits.forEach(init => { shifts.push({ initials: init.toUpperCase(), startRaw, duration, leave: [], status: 'active' }); });
+            input.split(/\s+/).forEach(init => { shifts.push({ initials: init.toUpperCase(), startRaw, duration, leave: [], status: 'active' }); });
             if (editIdx > -1) shifts.splice(editIdx, 1);
             finishUpdate(); clearInputs();
-            document.getElementById('multiInitials').focus();
         }
     }
 
-    function addLeave(idx) {
-        const range = prompt("Enter range (e.g. 1200-1230):");
-        if (range && range.includes('-')) {
-            const [s, e] = range.split('-');
-            if(!shifts[idx].leave) shifts[idx].leave = [];
-            shifts[idx].leave.push({ startRaw: s.trim().padStart(4, '0'), endRaw: e.trim().padStart(4, '0') });
-            finishUpdate();
-        }
-    }
-    
-    function deleteLeave(shiftIdx, leaveIdx) {
-        shifts[shiftIdx].leave.splice(leaveIdx, 1);
+    function toggleStatus(idx, val) {
+        saveHistory();
+        shifts[idx].status = val;
         finishUpdate();
     }
 
-    function setStatus(idx, status) { shifts[idx].status = status; finishUpdate(); }
-    function finishUpdate() { shifts.sort((a,b) => parseTimeInput(a.startRaw) - parseTimeInput(b.startRaw)); localStorage.setItem(getStorageKey(), JSON.stringify(shifts)); render(); }
+    function finishUpdate() { 
+        shifts.sort((a,b) => parseTimeInput(a.startRaw) - parseTimeInput(b.startRaw)); 
+        if (!isDraft) localStorage.setItem(getStorageKey(), JSON.stringify(shifts)); 
+        updateUndoUI();
+        render(); 
+    }
 
     function render() {
         const chart = document.getElementById('chartArea'), list = document.getElementById('shiftList');
         chart.innerHTML = ''; list.innerHTML = '';
         const counts = new Array(TOTAL_HOURS).fill(0);
 
-        for (let i = 0; i <= TOTAL_HOURS; i++) {
-            const vLine = document.createElement('div');
-            vLine.className = 'print-v-line';
-            vLine.style.left = (i / TOTAL_HOURS * 100) + '%';
-            chart.appendChild(vLine);
-        }
-
         shifts.forEach((s, i) => {
             const isActive = s.status !== 'inactive';
-            const mergedLeave = mergeLeave(s.leave);
             let sOff = parseTimeInput(s.startRaw), eOff = sOff + s.duration;
-            let endStr = formatTimeFromOffset(eOff);
-            
-            let showHandover = !(parseInt(endStr) >= 300 && parseInt(endStr) <= 800); 
+            let actualEndStr = formatTimeFromOffset(eOff);
+            let visibleEOff = Math.min(eOff, TOTAL_HOURS);
+            let visualDuration = visibleEOff - sOff;
 
-            let leaveAtEnd = null;
-            (mergedLeave || []).forEach(lv => { if (parseTimeInput(lv.endRaw) >= eOff) { if (!leaveAtEnd || parseTimeInput(lv.startRaw) < parseTimeInput(leaveAtEnd.startRaw)) leaveAtEnd = lv; } });
-            let handoverPoint = showHandover ? (leaveAtEnd ? parseTimeInput(leaveAtEnd.startRaw) - 1 : eOff - 1) : eOff;
+            const isFullyOnLeave = (s.leave || []).some(lv => parseTimeInput(lv.startRaw) <= sOff && parseTimeInput(lv.endRaw) >= eOff);
 
             if (isActive) {
                 for(let h=0; h<TOTAL_HOURS; h++) {
-                    if(Math.max(sOff, h) < Math.min(eOff, h+1)) {
-                        let isLeave = (mergedLeave || []).some(lv => Math.max(parseTimeInput(lv.startRaw), h) < Math.min(parseTimeInput(lv.endRaw), h+1));
-                        let currentH = (h + START_HOUR) % 24;
-                        let isYellowWindow = (currentH >= 22 || currentH < 3);
-                        let isHandoverHour = (h >= handoverPoint && h < (leaveAtEnd ? parseTimeInput(leaveAtEnd.startRaw) : eOff));
-                        if (!isLeave) { if (!isHandoverHour || isYellowWindow) counts[h]++; }
+                    const isLeave = (s.leave || []).some(lv => Math.max(parseTimeInput(lv.startRaw), h) < Math.min(parseTimeInput(lv.endRaw), h+1));
+                    let currentH = (h + START_HOUR) % 24;
+                    let isYellowWindow = (currentH >= 22 || currentH < 3);
+                    
+                    // No yellow handover if shift ends after 2100 (offset 16)
+                    let shiftEndsAfter2100 = eOff > 16;
+                    let showHandover = !(parseInt(actualEndStr) >= 300 && parseInt(actualEndStr) <= 800) && !shiftEndsAfter2100;
+                    
+                    let handoverPoint = showHandover ? eOff - 1 : eOff;
+                    if(Math.max(sOff, h) < Math.min(eOff, h+1) && !isLeave) {
+                        if (!showHandover || (h < handoverPoint) || isYellowWindow) counts[h]++;
                     }
                 }
             }
 
-            const bar = document.createElement('div');
-            bar.className = 'shift-bar' + (isActive ? '' : ' inactive-bar');
-            const clippedStart = Math.max(0, sOff);
-            const clippedEnd = Math.min(TOTAL_HOURS, eOff);
-            const visibleWidth = clippedEnd - clippedStart;
-            bar.style.left = (clippedStart / TOTAL_HOURS * 100) + '%';
-            bar.style.width = (visibleWidth / TOTAL_HOURS * 100) + '%';
-            bar.innerHTML = `<span class="bar-text">${s.initials} ${s.startRaw}-${endStr} ${s.duration}hr</span>`;
+            if (!isFullyOnLeave && visualDuration > 0) {
+                const row = document.createElement('div'); row.className = 'shift-row'; 
+                const bar = document.createElement('div');
+                bar.className = `shift-bar ${!isActive ? 'inactive-bar' : ''} ${isDraft ? 'draft-bar' : ''}`;
+                bar.style.left = (sOff / TOTAL_HOURS * 100) + '%';
+                bar.style.width = (visualDuration / TOTAL_HOURS * 100) + '%';
+                bar.innerHTML = `<span class="bar-text">${s.initials} ${s.startRaw}-${actualEndStr} (${s.duration}h)</span>`;
 
-            if (isActive && showHandover && handoverPoint >= clippedStart && handoverPoint < clippedEnd) {
-                let totalH = (handoverPoint + START_HOUR) % 24;
-                if (!(totalH >= 22 || totalH < 3)) {
-                    const hOver = document.createElement('div');
-                    hOver.className = 'handover-overlay';
-                    hOver.style.left = (Math.max(0, handoverPoint - clippedStart) / visibleWidth * 100) + '%';
-                    hOver.style.width = (1 / visibleWidth * 100) + '%';
-                    bar.appendChild(hOver);
+                // No yellow handover if shift ends after 2100 (offset 16)
+                let shiftEndsAfter2100 = eOff > 16;
+                let showHandover = !(parseInt(actualEndStr) >= 300 && parseInt(actualEndStr) <= 800) && !shiftEndsAfter2100;
+                
+                if (isActive && showHandover) {
+                    let handoverPoint = eOff - 1;
+                    if (handoverPoint < TOTAL_HOURS) {
+                        const hOver = document.createElement('div');
+                        hOver.className = 'handover-overlay';
+                        hOver.style.left = ((handoverPoint - sOff) / visualDuration * 100) + '%';
+                        hOver.style.width = (Math.min(1, visibleEOff - handoverPoint) / visualDuration * 100) + '%';
+                        bar.appendChild(hOver);
+                    }
                 }
+
+                (s.leave || []).forEach(lv => {
+                    const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw);
+                    if (lvS < visibleEOff) {
+                        const lOver = document.createElement('div');
+                        lOver.className = 'leave-overlay';
+                        lOver.style.left = ((lvS - sOff) / visualDuration * 100) + '%';
+                        lOver.style.width = ((Math.min(lvE, visibleEOff) - lvS) / visualDuration * 100) + '%';
+                        const formatShort = (t) => t.endsWith('00') ? t.slice(0, 2) : t;
+                        lOver.style.fontSize = '10px';
+                        lOver.innerText = `LV ${formatShort(lv.startRaw)}-${formatShort(lv.endRaw)}`;
+                        bar.appendChild(lOver);
+                    }
+                });
+                row.appendChild(bar);
+                chart.appendChild(row);
             }
-
-            (mergedLeave || []).forEach(lv => {
-                let lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw);
-                const sInBar = Math.max(clippedStart, lvS), eInBar = Math.min(clippedEnd, lvE);
-                if (eInBar > sInBar) {
-                    const lOver = document.createElement('div');
-                    lOver.className = 'leave-overlay';
-                    lOver.style.left = ((sInBar - clippedStart) / visibleWidth * 100) + '%';
-                    lOver.style.width = ((eInBar - sInBar) / visibleWidth * 100) + '%';
-                    let dispS = lv.startRaw.endsWith('00') ? lv.startRaw.slice(0, 2) : lv.startRaw;
-                    let dispE = lv.endRaw.endsWith('00') ? lv.endRaw.slice(0, 2) : lv.endRaw;
-                    lOver.innerText = `LV ${dispS}-${dispE}`;
-                    bar.appendChild(lOver);
-                }
-            });
-
-            const row = document.createElement('div'); row.className = 'shift-row'; row.appendChild(bar); chart.appendChild(row);
             
             let leaveHTML = '';
             if(s.leave && s.leave.length > 0) {
                 leaveHTML = '<div class="registry-leave-container">';
                 s.leave.forEach((lv, lIdx) => {
-                    leaveHTML += `<div class="registry-leave-tag">
-                        ${lv.startRaw}-${lv.endRaw} <button class="btn-del-leave" onclick="deleteLeave(${i}, ${lIdx})">×</button>
-                    </div>`;
+                    leaveHTML += `<div class="registry-leave-tag">${lv.startRaw}-${lv.endRaw} <button class="btn-del-leave" onclick="deleteLeave(${i}, ${lIdx})">×</button></div>`;
                 });
                 leaveHTML += '</div>';
             }
 
             list.innerHTML += `<div class="list-item">
-                <b>${s.initials}</b>: ${s.startRaw}-${endStr}
-                <select class="status-select" onchange="setStatus(${i}, this.value)">
-                    <option value="active" ${isActive ? 'selected' : ''}>Active</option>
-                    <option value="inactive" ${!isActive ? 'selected' : ''}>Inactive</option>
-                </select>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span><b>${s.initials}</b> ${s.startRaw}-${actualEndStr} (${s.duration}h)</span>
+                    <select class="status-select" onchange="toggleStatus(${i}, this.value)">
+                        <option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>
+                </div>
                 ${leaveHTML}
                 <div class="item-actions">
                     <button class="btn-leave" onclick="addLeave(${i})">+ Leave</button>
@@ -446,14 +446,26 @@
                 </div>
             </div>`;
         });
-        counts.forEach((c, i) => {
-            const cell = document.getElementById(`cap-${i}`);
-            cell.innerText = c || '-';
-            cell.title = `Staff count: ${c || 0}`;
-        });
+        counts.forEach((c, i) => { document.getElementById(`cap-${i}`).innerText = c || '-'; });
         updateNowLine();
     }
 
+    function addLeave(idx) {
+        saveHistory();
+        const s = shifts[idx];
+        const endStr = formatTimeFromOffset(parseTimeInput(s.startRaw) + s.duration);
+        const range = prompt(`${s.initials} (${s.startRaw}-${endStr})\nEnter range (e.g. 1200-1230) or type 'all':`);
+        if (range && range.toLowerCase() === 'all') {
+            shifts[idx].leave = [{ startRaw: s.startRaw, endRaw: endStr }];
+            finishUpdate();
+        } else if (range && range.includes('-')) {
+            const [st, en] = range.split('-');
+            if(!shifts[idx].leave) shifts[idx].leave = [];
+            shifts[idx].leave.push({ startRaw: st.trim().padStart(4, '0'), endRaw: en.trim().padStart(4, '0') });
+            finishUpdate();
+        }
+    }
+    function deleteLeave(shiftIdx, leaveIdx) { saveHistory(); shifts[shiftIdx].leave.splice(leaveIdx, 1); finishUpdate(); }
     function editShift(i) {
         const s = shifts[i];
         document.getElementById('multiInitials').value = s.initials;
@@ -462,15 +474,9 @@
         document.getElementById('editIndex').value = i;
         document.getElementById('addBtn').innerText = "Update";
     }
-
-    function deleteShift(i) { if(confirm("Delete?")) { shifts.splice(i, 1); finishUpdate(); } }
-    function clearAllShifts() { if(confirm("Are you sure you want to CLEAR ALL shifts for this date and area? This cannot be undone.")) { shifts = []; finishUpdate(); } }
-    function clearInputs() { 
-        document.getElementById('multiInitials').value = ''; 
-        document.getElementById('startTime').value = ''; 
-        document.getElementById('editIndex').value = "-1"; 
-        document.getElementById('addBtn').innerText = "Save Shift"; 
-    }
+    function deleteShift(i) { if(confirm(`Delete ${shifts[i].initials}?`)) { saveHistory(); shifts.splice(i, 1); finishUpdate(); } }
+    function clearAllShifts() { if(confirm("Clear ALL?")) { saveHistory(); shifts = []; finishUpdate(); } }
+    function clearInputs() { document.getElementById('multiInitials').value = ''; document.getElementById('startTime').value = ''; document.getElementById('editIndex').value = "-1"; document.getElementById('addBtn').innerText = "Save Shift"; }
 
     document.getElementById('targetDate').valueAsDate = new Date();
     initHeader(); loadDateData();
