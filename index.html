@@ -41,7 +41,7 @@
 
         @media print {
             @page { size: landscape; margin: 0.5cm; }
-            header, .controls, #pasteOverlay, #traineeOverlay, #actionOverlay, .btn-clear, .btn-undo, .btn-redo, .item-actions, .status-select, #nowLine, #draftBadge, #bigDraftWarning, #btnCommitDraft, .sidebar, .guidance-bar { display: none !important; }
+            header, .controls, #pasteOverlay, #traineeOverlay, #actionOverlay, #editOverlay, .btn-clear, .btn-undo, .btn-redo, .item-actions, .status-select, #nowLine, #draftBadge, #bigDraftWarning, #btnCommitDraft, .sidebar, .guidance-bar { display: none !important; }
             html, body { height: auto !important; overflow: visible !important; background: white !important; }
             .main-layout { display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; zoom: 0.9; }
             .work-area { width: 100% !important; }
@@ -125,9 +125,16 @@
         .btn-leave { background: #95a5a6; }
         .btn-xte { background: #27ae60; }
         .status-select { font-size: 10px; padding: 2px; border-radius: 3px; border: 1px solid var(--border); }
-        #pasteOverlay, #traineeOverlay, #actionOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: none; justify-content: center; align-items: center; }
-        .paste-modal { background: white; padding: 20px; border-radius: 12px; width: 600px; display: flex; flex-direction: column; gap: 10px; }
+        
+        #pasteOverlay, #traineeOverlay, #actionOverlay, #editOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: none; justify-content: center; align-items: center; }
+        .paste-modal { background: white; padding: 20px; border-radius: 12px; width: 600px; display: flex; flex-direction: column; gap: 10px; max-height: 90vh; overflow-y: auto; }
         textarea { width: 100%; height: 180px; font-family: monospace; font-size: 12px; border: 1px solid #ccc; padding: 8px; }
+        
+        .modal-input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; }
+        
+        .sub-edit-row { display: flex; gap: 5px; align-items: center; margin-top: 5px; background: #f8f9fa; padding: 5px; border-radius: 4px; border: 1px solid #eee; }
+        .sub-edit-label { font-size: 9px; font-weight: bold; width: 45px; }
+        .sub-edit-input { padding: 4px !important; font-size: 11px !important; }
     </style>
 </head>
 <body>
@@ -174,6 +181,27 @@
     </div>
 </div>
 
+<div id="editOverlay">
+    <div class="paste-modal" style="width: 400px;">
+        <h3 style="margin: 0;">Edit Shift</h3>
+        <p id="editSubtext" style="font-size: 13px; margin: 5px 0;"></p>
+        
+        <div class="input-group"><label>Initials</label><input type="text" id="editInitInput" style="width: 100%; box-sizing: border-box;"></div>
+        <div class="modal-input-grid">
+            <div class="input-group"><label>Start Time</label><input type="text" id="editStartInput" maxlength="4" style="width: 100%; box-sizing: border-box;"></div>
+            <div class="input-group"><label>Duration</label><input type="number" id="editDurInput" step="0.5" style="width: 100%; box-sizing: border-box;"></div>
+        </div>
+
+        <div id="editSubItemsContainer" style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px;">
+            </div>
+        
+        <div style="display:flex; gap: 10px; margin-top: 15px;">
+            <button id="btnEditConfirm" style="background: #3498db; color: white; flex: 1;">Update Shift</button>
+            <button onclick="closeEditModal()" style="background: #ccc; flex: 1;">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <header>
     <div style="font-weight: bold; font-size: 1.2rem;">Schedule Graph</div>
     <div id="bigDraftWarning">DRAFT</div>
@@ -206,7 +234,6 @@
     <div class="work-area">
         <div id="printInfo" class="print-header"></div>
         <div class="controls">
-            <input type="hidden" id="editIndex" value="-1">
             <div class="input-group"><label>Date</label><input type="date" id="targetDate" onchange="loadDateData()"></div>
             <div class="input-group"><label>Manual Entry</label><input type="text" id="multiInitials" placeholder="Initials"></div>
             <div class="input-group"><label>Start</label><input type="text" id="startTime" maxlength="4" style="width: 60px;" placeholder="0800"></div>
@@ -441,10 +468,8 @@
         const input = document.getElementById('multiInitials').value.trim();
         const startRaw = document.getElementById('startTime').value;
         const duration = parseFloat(document.getElementById('duration').value);
-        const editIdx = parseInt(document.getElementById('editIndex').value);
         if (input) {
             input.split(/\s+/).forEach(init => { shifts.push({ initials: init.toUpperCase(), startRaw, duration, leave: [], xte: [], status: 'active' }); });
-            if (editIdx > -1) shifts.splice(editIdx, 1);
             finishUpdate(); clearInputs();
         }
     }
@@ -550,7 +575,7 @@
                 <div class="item-actions">
                     <button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button>
                     <button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button>
-                    <button class="btn-edit" onclick="editShift(${originalIdx})">Edit</button>
+                    <button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button>
                     <button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button>
                 </div>
             </div>`;
@@ -609,24 +634,82 @@
         input.onkeydown = (e) => { if(e.key === 'Enter') confirmBtn.onclick(); };
     }
 
-    function closeActionModal() {
-        document.getElementById('actionOverlay').style.display = 'none';
+    function openEditModal(idx) {
+        const s = shifts[idx];
+        const overlay = document.getElementById('editOverlay');
+        const subtext = document.getElementById('editSubtext');
+        const initInput = document.getElementById('editInitInput');
+        const startInput = document.getElementById('editStartInput');
+        const durInput = document.getElementById('editDurInput');
+        const subItemsContainer = document.getElementById('editSubItemsContainer');
+        const confirmBtn = document.getElementById('btnEditConfirm');
+
+        overlay.style.display = 'flex';
+        subtext.innerHTML = `Editing <b>${s.initials}</b>`;
+        initInput.value = s.initials;
+        startInput.value = s.startRaw;
+        durInput.value = s.duration;
+        
+        // Build sub-item editor
+        subItemsContainer.innerHTML = '';
+        
+        const buildRow = (type, item, i) => {
+            const div = document.createElement('div');
+            div.className = 'sub-edit-row';
+            div.innerHTML = `
+                <span class="sub-edit-label">${type.toUpperCase()}</span>
+                <input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="start" value="${item.startRaw}" style="width: 50px;">
+                <span>to</span>
+                <input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="end" value="${item.endRaw}" style="width: 50px;">
+            `;
+            return div;
+        };
+
+        s.leave.forEach((lv, i) => subItemsContainer.appendChild(buildRow('leave', lv, i)));
+        (s.xte || []).forEach((xt, i) => subItemsContainer.appendChild(buildRow('xte', xt, i)));
+
+        initInput.focus();
+
+        confirmBtn.onclick = () => {
+            saveHistory();
+            shifts[idx].initials = initInput.value.toUpperCase().trim();
+            shifts[idx].startRaw = startInput.value.trim();
+            shifts[idx].duration = parseFloat(durInput.value);
+            
+            // Gather sub-item updates
+            const subInputs = subItemsContainer.querySelectorAll('.sub-edit-input');
+            subInputs.forEach(input => {
+                const type = input.dataset.type;
+                const i = parseInt(input.dataset.index);
+                const field = input.dataset.field;
+                const val = input.value.trim().padStart(4, '0');
+                
+                if(type === 'leave') {
+                    if(field === 'start') shifts[idx].leave[i].startRaw = val;
+                    else shifts[idx].leave[i].endRaw = val;
+                } else {
+                    if(field === 'start') shifts[idx].xte[i].startRaw = val;
+                    else shifts[idx].xte[i].endRaw = val;
+                }
+            });
+
+            finishUpdate();
+            closeEditModal();
+        };
+
+        const inputs = [initInput, startInput, durInput];
+        inputs.forEach(el => el.onkeydown = (e) => { if(e.key === 'Enter') confirmBtn.onclick(); });
     }
+
+    function closeActionModal() { document.getElementById('actionOverlay').style.display = 'none'; }
+    function closeEditModal() { document.getElementById('editOverlay').style.display = 'none'; }
 
     function deleteLeave(si, li) { saveHistory(); shifts[si].leave.splice(li, 1); finishUpdate(); }
     function deleteXte(si, xi) { saveHistory(); shifts[si].xte.splice(xi, 1); finishUpdate(); }
     
-    function editShift(i) {
-        const s = shifts[i];
-        document.getElementById('multiInitials').value = s.initials;
-        document.getElementById('startTime').value = s.startRaw;
-        document.getElementById('duration').value = s.duration;
-        document.getElementById('editIndex').value = i;
-        document.getElementById('addBtn').innerText = "Update";
-    }
     function deleteShift(i) { if(confirm("Delete?")) { saveHistory(); shifts.splice(i, 1); finishUpdate(); } }
     function clearAllShifts() { if(confirm("Clear ALL?")) { saveHistory(); shifts = []; finishUpdate(); } }
-    function clearInputs() { document.getElementById('multiInitials').value = ''; document.getElementById('startTime').value = ''; document.getElementById('editIndex').value = "-1"; document.getElementById('addBtn').innerText = "Save Shift"; }
+    function clearInputs() { document.getElementById('multiInitials').value = ''; document.getElementById('startTime').value = ''; }
 
     document.getElementById('targetDate').valueAsDate = new Date();
     initHeader(); loadDateData();
