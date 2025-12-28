@@ -190,12 +190,12 @@
     <div class="guidance-section">
         <span>Sun-Fri:</span>
         <span class="guidance-text">
-            <span class="blue-shift">Day-8</span> | 0600: 3-5 | 4 w/no sup | <span class="blue-shift">Eve-9</span> | 8 at 2000 | 5 at 2100 | 3 at 2200
+            <span class="blue-shift">Day-8</span> | 0600: 3-5 | 4 w/no sup | <span class="blue-shift">Eve-9</span> | 8 until 2100 | 5 after 2100 | 3 until 2300
         </span>
     </div>
     <div class="guidance-section">
         <span>Sat:</span>
-        <span class="guidance-text">5 CPCs at 2100</span>
+        <span class="guidance-text">5 CPCs after 2100</span>
         <label class="day-sup-container">
             <input type="checkbox" id="daySupCheckbox" onchange="toggleDaySupPreference()"> Day Sup
         </label>
@@ -571,7 +571,6 @@
         updateNowLine();
     }
 
-    // Modal logic to support real bolding
     function openActionModal(type, idx) {
         const s = shifts[idx];
         const startOff = parseTimeInput(s.startRaw);
@@ -586,7 +585,6 @@
 
         overlay.style.display = 'flex';
         title.innerText = type === 'leave' ? 'Add Leave' : 'Add XTE';
-        // HTML Bolding here:
         subtext.innerHTML = `Add ${type.toUpperCase()} for <b>${s.initials}</b> (<b>${shiftTimes}</b>)`;
         input.value = '';
         input.focus();
@@ -608,8 +606,6 @@
                 closeActionModal();
             }
         };
-
-        // Allow Enter key to submit
         input.onkeydown = (e) => { if(e.key === 'Enter') confirmBtn.onclick(); };
     }
 
