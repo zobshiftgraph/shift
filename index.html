@@ -617,7 +617,8 @@
             if (r && r.includes('-')) { 
                 const [st, en] = r.split('-'), cleanSt = st.trim().padStart(4,'0'), cleanEn = en.trim().padStart(4,'0'); 
                 saveHistory(); 
-                if(type === 'leave') s.leave.push({ startRaw: cleanSt, endRaw: cleanEn, type: 'AL' }); 
+                // Updated Logic: Label specifically as "LV" if using the button
+                if(type === 'leave') s.leave.push({ startRaw: cleanSt, endRaw: cleanEn, type: 'LV' }); 
                 else { if(!s.xte) s.xte = []; s.xte.push({ startRaw: cleanSt, endRaw: cleanEn }); } 
                 finishUpdate(); closeActionModal(); 
             } 
@@ -663,7 +664,7 @@
         sortedShifts.forEach((s) => {
             const originalIdx = shifts.indexOf(s);
             if (handledIndices.has(originalIdx)) return;
-            if (s.trainer && traineeReg.includes(s.initials) && !s.asStaff && shifts.some(sh => h.initials === s.trainer)) return;
+            if (s.trainer && traineeReg.includes(s.initials) && !s.asStaff && shifts.some(sh => sh.initials === s.trainer)) return;
             finalDisplayOrder.push(s); handledIndices.add(originalIdx);
             sortedShifts.forEach((traineeCand) => {
                 const tIdx = shifts.indexOf(traineeCand);
@@ -705,7 +706,7 @@
                 (s.xte || []).forEach(xt => { const xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); const xOver = document.createElement('div'); xOver.className = `xte-overlay ${isDraft && original && (!original.xte || !original.xte.some(oxt => oxt.startRaw === xt.startRaw && oxt.endRaw === xt.endRaw)) ? 'is-changed' : ''}`; xOver.style.left = ((xtS - overallStartOff) / visualDuration * 100) + '%'; xOver.style.width = ((Math.min(xtE, overallEndOff) - xtS) / visualDuration * 100) + '%'; xOver.innerText = `XTE ${xt.startRaw}-${xt.endRaw}`; bar.appendChild(xOver); });
                 if (s.status !== 'inactive' && !isTrainee) {
                     let hSlot = baseEndOff - 1;
-                    const lvEnd = (s.leave || []).find(lv => Math.abs(parseTimeInput(lv.endRaw) - baseEndOff) <= 1 && ["AL", "SL", "HL", "Admin", "XTU", "FURLOUGH"].includes(lv.type));
+                    const lvEnd = (s.leave || []).find(lv => Math.abs(parseTimeInput(lv.endRaw) - baseEndOff) <= 1 && ["AL", "SL", "HL", "Admin", "XTU", "FURLOUGH", "LV"].includes(lv.type));
                     const hasXTEAtEnd = (s.xte || []).some(xt => Math.abs(parseTimeInput(xt.startRaw) - baseEndOff) < 0.1);
                     if (lvEnd) hSlot = parseTimeInput(lvEnd.startRaw) - 1;
                     if (!(overallEndOff > 17 || (parseInt(formatTimeFromOffset(overallEndOff)) >= 300 && parseInt(formatTimeFromOffset(overallEndOff)) <= 800)) && !hasXTEAtEnd) {
@@ -728,12 +729,8 @@
                 }
                 staffingCheck = `<label style="font-size: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-top: 5px;"><input type="checkbox" style="width:12px; height:12px;" ${s.asStaff ? 'checked' : ''} onchange="toggleAsStaff(${originalIdx}, this.checked)"> Staffing</label>`;
             }
-            
-            // Modified logic: Item gets purple background ONLY if not in staffing.
-            // But it ALWAYS keeps the 4px left border if it's in the trainee registry.
             const itemClass = isTInReg && !s.asStaff ? 'list-item is-trainee-item' : 'list-item';
             const traineeBarStyle = isTInReg ? 'border-left: 4px solid var(--trainee);' : '';
-            
             list.innerHTML += `<div class="${itemClass}" style="${traineeBarStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
         });
 
