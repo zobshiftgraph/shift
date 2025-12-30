@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schedule Graph v9.0</title>
+    <title>Shift Graph</title>
     <style>
         :root { 
             --primary: #2c3e50; 
@@ -48,7 +48,7 @@
             .print-header { display: block !important; font-size: 16pt; margin-bottom: 10px; font-weight: 600; text-align: center; }
             .timeline-container { border: 2px solid #000 !important; background: white !important; overflow: visible !important; }
             .scrollable-timeline { overflow: visible !important; }
-            .grid-wrapper { position: relative; min-width: 0; width: 100%; display: flex; flex-direction: column; height: 100%; }
+            .grid-wrapper { width: 100% !important; min-width: 0 !important; }
             .labels, .capacity-row { display: grid !important; grid-template-columns: repeat(22, 1fr) !important; background: white !important; }
             .hour-label, .cap-cell { font-size: 10pt !important; border-right: 1px solid #000 !important; border-bottom: 2px solid #000 !important; }
             .chart-area { min-height: 400px !important; background: white !important; -webkit-print-color-adjust: exact; }
@@ -179,6 +179,7 @@
 <div id="traineeOverlay">
     <div class="paste-modal" style="width: 400px;">
         <h3 style="margin: 0;">Trainee Registry</h3>
+        <label>Enter Trainee Initials (space separated)</label>
         <textarea id="traineeInput" style="height: 100px; text-transform: uppercase;" placeholder="e.g. AB CD EF"></textarea>
         <div style="display:flex; gap: 10px;">
             <button onclick="saveTrainees()" style="background: #27ae60; color: white; flex: 1;">Save Trainees</button>
@@ -217,14 +218,14 @@
 </div>
 
 <header>
-    <div style="font-weight: bold; font-size: 1.2rem;">Schedule Graph v9.0</div>
+    <div style="font-weight: bold; font-size: 1.2rem;">Shift Graph</div>
     <div id="bigDraftWarning">DRAFT</div>
     <div style="display: flex; gap: 10px;">
-        <button id="btnTrainees" style="background: #9b59b6; color: white; width: 100px;" onclick="toggleTrainees(true)">Trainees</button>
+        <button id="btnTrainees" style="background: #9b59b6; color: white; width: 120px;" onclick="toggleTrainees(true)">Trainees</button>
         <button id="btnCreateDraft" class="btn-draft" style="width: 120px;" onclick="enableDraftMode()">Create Draft</button>
         <button id="btnCommitDraft" class="btn-commit" style="width: 130px; display: none;" onclick="commitDraft()">Replace Original</button>
         <button id="btnClearDraft" class="btn-clear-draft" style="width: 120px; display: none;" onclick="clearDraft()">Discard Draft</button>
-        <button style="background:#27ae60; color:white; width: 100px;" onclick="window.print()">Print</button>
+        <button style="background:#27ae60; color:white; width: 120px;" onclick="window.print()">Print Graph</button>
     </div>
 </header>
 
@@ -265,7 +266,7 @@
     <div class="sidebar">
         <div style="padding:10px; background:var(--primary); color:white; font-weight:bold; font-size:12px;" id="sidebarHeader">Shift List</div>
         <div id="shiftList" class="shift-list"></div>
-        <div id="pendingImportList" class="pending-import-section" style="display: none;">
+        <div id="pendingImportList" class="pending-import-section">
             <div style="font-weight: bold; font-size: 11px; margin-bottom: 5px; color: var(--draft-color);">Pending Requests</div>
             <div id="pendingImportItems"></div>
         </div>
@@ -289,6 +290,7 @@
         const nowLinePref = localStorage.getItem('show_now_line');
         document.getElementById('showNowLineCheckbox').checked = nowLinePref === null ? true : nowLinePref === 'true';
         
+        // Modal Input Enter Key Handlers
         document.getElementById('actionRangeInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnActionConfirm').click(); });
         document.getElementById('editInitInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
         document.getElementById('editStartInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
@@ -329,7 +331,7 @@
             redoStack.push(JSON.stringify(shifts));
             shifts = JSON.parse(historyStack.pop());
             updateUndoRedoUI();
-            finishUpdate(true);
+            renderUIOnly();
         }
     }
 
@@ -338,7 +340,7 @@
             historyStack.push(JSON.stringify(shifts));
             shifts = JSON.parse(redoStack.pop());
             updateUndoRedoUI();
-            finishUpdate(true);
+            renderUIOnly();
         }
     }
 
@@ -350,7 +352,6 @@
         document.getElementById('btnCreateDraft').style.display = 'none';
         document.getElementById('btnCommitDraft').style.display = 'block';
         document.getElementById('btnClearDraft').style.display = 'block';
-        document.getElementById('pendingImportList').style.display = 'block';
         render();
     }
 
@@ -364,7 +365,6 @@
             document.getElementById('btnCreateDraft').style.display = 'block';
             document.getElementById('btnCommitDraft').style.display = 'none';
             document.getElementById('btnClearDraft').style.display = 'none';
-            document.getElementById('pendingImportList').style.display = 'none';
         }
     }
 
@@ -375,7 +375,6 @@
         document.getElementById('btnCreateDraft').style.display = 'block';
         document.getElementById('btnCommitDraft').style.display = 'none';
         document.getElementById('btnClearDraft').style.display = 'none';
-        document.getElementById('pendingImportList').style.display = 'none';
         loadDateData();
     }
 
@@ -488,24 +487,36 @@
 
                 const cpc = parts.find(p => /^[A-Z]{2,3}$/.test(p.toUpperCase()))?.toUpperCase() || "";
                 const typeRaw = parts.find(p => ["ANNUAL", "SICK", "SHIFT CHG", "XTU", "HOLIDAY", "ADMIN", "FURLOUGH"].includes(p.toUpperCase())) || "";
+                const statusStrRaw = (parts.find(p => ["APPROVED!", "PENDING", "DENIED"].includes(p.toUpperCase())) || "").toUpperCase();
+
+                if (typeRaw.toUpperCase() === "SHIFT CHG" && statusStrRaw === "APPROVED!") {
+                    return; 
+                }
+
                 const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4})$/.test(p));
-                const fromRaw = timeParts[0] || (parts.find(p => p.toLowerCase() === "shift") || "");
-                const toRaw = timeParts[1] || "";
-                const statusStr = parts.find(p => ["APPROVED!", "PENDING", "DENIED"].includes(p.toUpperCase())) || "";
+                let fromRaw = timeParts[0] || (parts.find(p => p.toLowerCase() === "shift") || "");
+                let toRaw = timeParts[1] || "";
+
+                if (fromRaw.toLowerCase() === "shift") {
+                    const targetShift = shifts.find(s => s.initials === cpc);
+                    if (targetShift) {
+                        const sStart = parseTimeInput(targetShift.startRaw);
+                        fromRaw = formatTimeFromOffset(sStart);
+                        toRaw = formatTimeFromOffset(sStart + targetShift.duration);
+                    }
+                }
 
                 pasteCounter++; 
 
-                // Only handle Pending/Denied if in Draft Mode
-                if (isDraft && (statusStr.toLowerCase().includes("pending") || statusStr.toLowerCase().includes("denied"))) {
+                if (statusStrRaw.includes("PENDING") || statusStrRaw.includes("DENIED")) {
                     let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
                     shifts.forEach(s => {
                         if (s.initials === cpc) {
                             if (!s.pendingImport) s.pendingImport = [];
-                            s.pendingImport.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStr, processed: false, pasteOrder: pasteCounter });
+                            s.pendingImport.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStrRaw, processed: false, pasteOrder: pasteCounter });
                         }
                     });
-                } else if (!isDraft && statusStr.toLowerCase().includes("approved") && fromRaw.toLowerCase() !== "shift") {
-                    // Logic to skip shift changes during Draft Mode if not Pending or Denied
+                } else if (statusStrRaw.includes("APPROVED")) {
                     let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
                     const row = { cpc, type, from: fromRaw, to: toRaw };
                     shifts.forEach(s => { if (s.initials === row.cpc) applyImportAsLeave(s, row); });
@@ -517,8 +528,12 @@
 
     function applyImportAsLeave(shift, row) {
         let fromTime = row.from, toTime = row.to;
-        if (!shift.leave) shift.leave = [];
-        shift.leave.push({ startRaw: fromTime.replace(':',''), endRaw: toTime.replace(':',''), type: row.type });
+        const sStartOff = parseTimeInput(shift.startRaw), sEndOff = sStartOff + shift.duration;
+        const lStartOff = parseTimeInput(fromTime), lEndOff = parseTimeInput(toTime);
+        if (lStartOff >= sStartOff && lEndOff <= sEndOff) {
+            if (!shift.leave) shift.leave = [];
+            shift.leave.push({ startRaw: fromTime.replace(':',''), endRaw: toTime.replace(':',''), type: row.type });
+        }
     }
 
     function handleImportAction(shiftIdx, piIdx, action) {
@@ -529,7 +544,7 @@
             if (row.type === "SHIFT CHG") {
                 row.origStart = shifts[shiftIdx].startRaw; row.origDur = shifts[shiftIdx].duration;
                 let newStart = row.to.replace(':',''), newDur = 8;
-                if (row.to.includes('-')) { const parts = row.to.split('-'); newStart = parts[0]; newDur = parseFloat(parts[1]); }
+                if (newStart.includes('-')) { const parts = newStart.split('-'); newStart = parts[0]; newDur = parseFloat(parts[1]); }
                 shifts[shiftIdx].startRaw = newStart; shifts[shiftIdx].duration = newDur;
             } else { applyImportAsLeave(shifts[shiftIdx], row); }
         } else if (action === 'revert') {
@@ -553,7 +568,7 @@
     function loadDateData() {
         const dateVal = document.getElementById('targetDate').value;
         const key = `staff_data_${dateVal}`, dateKey = `day_sup_checked_${dateVal}`;
-        document.getElementById('daySupCheckbox').checked = localStorage.getItem(dateKey) === 'true';
+        document.getElementById('daySupCheckbox').checked = localStorage.getItem(dateKey) === 'true'; 
         document.getElementById('printInfo').innerText = dateVal ? new Date(dateVal + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "No Date Selected";
         shifts = JSON.parse(localStorage.getItem(key)) || [];
         render();
@@ -587,23 +602,38 @@
     function renderUIOnly() { if (!isDraft) localStorage.setItem(`staff_data_${document.getElementById('targetDate').value}`, JSON.stringify(shifts)); render(); }
 
     function openActionModal(type, idx) {
+        const overlay = document.getElementById('actionOverlay'), input = document.getElementById('actionRangeInput'), confirmBtn = document.getElementById('btnActionConfirm');
         const s = shifts[idx];
         const sStart = parseTimeInput(s.startRaw), sEnd = sStart + s.duration;
+        
+        overlay.style.display = 'flex'; 
         document.getElementById('actionTitle').innerText = type === 'leave' ? 'Add Leave' : 'Add XTE';
         document.getElementById('actionSubtext').innerHTML = `Add ${type.toUpperCase()} for <b>${s.initials}</b><br><small>Shift: ${formatTimeFromOffset(sStart)} - ${formatTimeFromOffset(sEnd)}</small>`; 
-        document.getElementById('actionRangeInput').value = '';
-        document.getElementById('actionOverlay').style.display = 'flex'; 
-        document.getElementById('actionRangeInput').focus();
+        
+        input.value = ''; input.focus();
+        confirmBtn.onclick = () => { 
+            const r = input.value; 
+            if (r && r.includes('-')) { 
+                const [st, en] = r.split('-'), cleanSt = st.trim().padStart(4,'0'), cleanEn = en.trim().padStart(4,'0'); 
+                saveHistory(); 
+                if(type === 'leave') s.leave.push({ startRaw: cleanSt, endRaw: cleanEn, type: 'AL' }); 
+                else { if(!s.xte) s.xte = []; s.xte.push({ startRaw: cleanSt, endRaw: cleanEn }); } 
+                finishUpdate(); closeActionModal(); 
+            } 
+        };
     }
 
     function openEditModal(idx) {
+        const overlay = document.getElementById('editOverlay'), initInput = document.getElementById('editInitInput'), startInput = document.getElementById('editStartInput'), durInput = document.getElementById('editDurInput'), container = document.getElementById('editSubItemsContainer');
         const s = shifts[idx];
         const sStart = parseTimeInput(s.startRaw), sEnd = sStart + s.duration;
-        document.getElementById('editInitInput').value = s.initials; 
-        document.getElementById('editStartInput').value = s.startRaw; 
-        document.getElementById('editDurInput').value = s.duration; 
+        
+        overlay.style.display = 'flex'; 
+        initInput.value = s.initials; 
+        startInput.value = s.startRaw; 
+        durInput.value = s.duration; 
         document.getElementById('editSubtext').innerHTML = `<small>Current: ${formatTimeFromOffset(sStart)} - ${formatTimeFromOffset(sEnd)} (${s.duration}hr)</small>`;
-        const container = document.getElementById('editSubItemsContainer');
+        
         container.innerHTML = '';
         const buildRow = (type, item, i) => { 
             const div = document.createElement('div'); div.className = 'sub-edit-row'; 
@@ -613,14 +643,9 @@
         };
         if(s.leave) s.leave.forEach((lv, i) => container.appendChild(buildRow('leave', lv, i)));
         if(s.xte) s.xte.forEach((xt, i) => container.appendChild(buildRow('xte', xt, i)));
-        document.getElementById('editOverlay').style.display = 'flex'; 
-        document.getElementById('editInitInput').focus();
+        initInput.focus();
+        document.getElementById('btnEditConfirm').onclick = () => { saveHistory(); s.initials = initInput.value.toUpperCase(); s.startRaw = startInput.value.trim(); s.duration = parseFloat(durInput.value); container.querySelectorAll('.sub-edit-input').forEach(input => { const type = input.dataset.type, i = parseInt(input.dataset.index), field = input.dataset.field, val = input.value.trim().padStart(4, '0'); if(type === 'leave') { if(field === 'start') s.leave[i].startRaw = val; else s.leave[i].endRaw = val; } else { if(field === 'start') s.xte[i].startRaw = val; else s.xte[i].endRaw = val; } }); finishUpdate(); closeEditModal(); };
     }
-
-    function closeActionModal() { document.getElementById('actionOverlay').style.display = 'none'; }
-    function closeEditModal() { document.getElementById('editOverlay').style.display = 'none'; }
-    function deleteShift(i) { if(confirm("Delete?")) { saveHistory(); shifts.splice(i, 1); finishUpdate(); } }
-    function clearAllShifts() { if(confirm("Clear ALL?")) { saveHistory(); shifts = []; finishUpdate(); } }
 
     function render() {
         const chart = document.getElementById('chartArea'), list = document.getElementById('shiftList'), importList = document.getElementById('pendingImportItems');
@@ -653,7 +678,14 @@
         finalDisplayOrder.forEach((s) => {
             let baseStartOff = parseTimeInput(s.startRaw), baseEndOff = baseStartOff + s.duration;
             let overallStartOff = baseStartOff, overallEndOff = baseEndOff;
-            (s.xte || []).forEach(xt => { let xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); overallStartOff = Math.min(overallStartOff, xtS); overallEndOff = Math.max(overallStartOff, xtE); });
+            
+            const isFullShiftLeave = (s.leave || []).some(lv => {
+                const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw);
+                return Math.abs(lvS - baseStartOff) < 0.1 && Math.abs(lvE - baseEndOff) < 0.1;
+            });
+            if (isFullShiftLeave) return;
+
+            (s.xte || []).forEach(xt => { let xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); overallStartOff = Math.min(overallStartOff, xtS); overallEndOff = Math.max(overallEndOff, xtE); });
             const isTrainee = traineeReg.includes(s.initials) && !s.asStaff;
             const isGreyedOut = showNowLine && (currentRelHour !== null && currentRelHour >= overallEndOff);
             let original = originalShifts.find(orig => orig.initials === s.initials && orig.startRaw === s.startRaw);
@@ -673,31 +705,49 @@
                 if (s.status !== 'inactive' && !isTrainee) {
                     let hSlot = baseEndOff - 1;
                     const lvEnd = (s.leave || []).find(lv => Math.abs(parseTimeInput(lv.endRaw) - baseEndOff) <= 1 && ["AL", "SL", "HL", "Admin", "XTU", "FURLOUGH"].includes(lv.type));
+                    const hasXTEAtEnd = (s.xte || []).some(xt => Math.abs(parseTimeInput(xt.startRaw) - baseEndOff) < 0.1);
                     if (lvEnd) hSlot = parseTimeInput(lvEnd.startRaw) - 1;
-                    if (!(overallEndOff > 17 || (parseInt(formatTimeFromOffset(overallEndOff)) >= 300 && parseInt(formatTimeFromOffset(overallEndOff)) <= 800))) { let hOver = document.createElement('div'); hOver.className = 'handover-overlay'; hOver.style.left = ((hSlot - overallStartOff) / visualDuration * 100) + '%'; hOver.style.width = (1 / visualDuration * 100) + '%'; bar.appendChild(hOver); }
+                    if (!(overallEndOff > 17 || (parseInt(formatTimeFromOffset(overallEndOff)) >= 300 && parseInt(formatTimeFromOffset(overallEndOff)) <= 800)) && !hasXTEAtEnd) {
+                        let hOver = document.createElement('div'); hOver.className = 'handover-overlay'; hOver.style.left = ((hSlot - overallStartOff) / visualDuration * 100) + '%'; hOver.style.width = (1 / visualDuration * 100) + '%'; bar.appendChild(hOver); 
+                    }
                 }
                 (s.leave || []).forEach(lv => { const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw); const lOver = document.createElement('div'); lOver.className = `leave-overlay ${isDraft && original && (!original.leave || !original.leave.some(olv => olv.startRaw === lv.startRaw && olv.endRaw === lv.endRaw)) ? 'is-changed' : ''}`; lOver.style.left = ((lvS - overallStartOff) / visualDuration * 100) + '%'; lOver.style.width = ((Math.min(lvE, overallEndOff) - lvS) / visualDuration * 100) + '%'; lOver.innerText = `${lv.type} ${lv.startRaw}-${lv.endRaw}`; bar.appendChild(lOver); });
                 row.appendChild(bar); chart.appendChild(row);
             }
         });
 
-        shifts.forEach((s) => {
-            const oS = parseTimeInput(s.startRaw), oE = oS + s.duration, isTInReg = traineeReg.includes(s.initials), sIdx = shifts.indexOf(s);
-            let tags = (s.leave || []).map((lv, i) => `<div class="registry-leave-tag">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-del-leave" onclick="deleteLeave(${sIdx}, ${i})">×</button></div>`).join('') + (s.xte || []).map((xt, i) => `<div class="registry-leave-tag tag-xte">XTE ${xt.startRaw}-${xt.endRaw} <button class="btn-del-leave" onclick="deleteXte(${sIdx}, ${i})">×</button></div>`).join('') + (s.pendingLeave || []).map((lv, i) => `<div class="registry-leave-tag tag-pending">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-accept-leave" onclick="acceptPendingLeave(${sIdx}, ${i})">✓</button><button class="btn-del-leave" onclick="rejectPendingLeave(${sIdx}, ${i})">×</button></div>`).join('');
-            let trC = '', staffingCheck = '';
+        shifts.forEach((s, originalIdx) => {
+            const oS = parseTimeInput(s.startRaw), oE = oS + s.duration, isTInReg = traineeReg.includes(s.initials);
+            let tags = (s.leave || []).map((lv, i) => `<div class="registry-leave-tag">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-del-leave" onclick="deleteLeave(${originalIdx}, ${i})">×</button></div>`).join('') + (s.xte || []).map((xt, i) => `<div class="registry-leave-tag tag-xte">XTE ${xt.startRaw}-${xt.endRaw} <button class="btn-del-leave" onclick="deleteXte(${originalIdx}, ${i})">×</button></div>`).join('') + (s.pendingLeave || []).map((lv, i) => `<div class="registry-leave-tag tag-pending">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-accept-leave" onclick="acceptPendingLeave(${originalIdx}, ${i})">✓</button><button class="btn-del-leave" onclick="rejectPendingLeave(${originalIdx}, ${i})">×</button></div>`).join('');
+            
+            let trC = ''; staffingCheck = '';
             if (isTInReg) {
-                trC = `<div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;"><label style="font-size: 9px; font-weight: bold;">TRAINER</label><select class="trainer-select" onchange="setTrainer(${sIdx}, this.value)">${[''].concat(shifts.filter(o => o.initials !== s.initials).map(o => o.initials)).map(init => `<option value="${init}" ${s.trainer === init ? 'selected' : ''}>${init || 'None'}</option>`).join('')}</select></div>`;
-                staffingCheck = `<label style="font-size: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-top: 5px;"><input type="checkbox" style="width:12px; height:12px;" ${s.asStaff ? 'checked' : ''} onchange="toggleAsStaff(${sIdx}, this.checked)"> Staffing</label>`;
+                trC = `<div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;"><label style="font-size: 9px; font-weight: bold;">TRAINER</label><select class="trainer-select" onchange="setTrainer(${originalIdx}, this.value)">${[''].concat(shifts.filter(o => o.initials !== s.initials).map(o => o.initials)).map(init => `<option value="${init}" ${s.trainer === init ? 'selected' : ''}>${init || 'None'}</option>`).join('')}</select></div>`;
+                staffingCheck = `<label style="font-size: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-top: 5px;"><input type="checkbox" style="width:12px; height:12px;" ${s.asStaff ? 'checked' : ''} onchange="toggleAsStaff(${originalIdx}, this.checked)"> Staffing</label>`;
             }
-            list.innerHTML += `<div class="list-item" style="${isTInReg && !s.asStaff ? 'border-left: 4px solid var(--trainee);' : ''}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${sIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${sIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${sIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${sIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${sIdx})">Del</button></div></div>`;
+            list.innerHTML += `<div class="list-item" style="${isTInReg && !s.asStaff ? 'border-left: 4px solid var(--trainee);' : ''}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
         });
 
-        if (isDraft) {
-            allPending.forEach((pi) => {
-                const isDenied = pi.status.toLowerCase().includes('denied');
-                importList.innerHTML += `<div class="pending-import-item ${pi.processed ? 'processed' : ''}"><div class="pending-import-data"><b>${pi.cpc}</b>: ${pi.type}${isDenied ? ' <span style="color:red;font-weight:bold">DENIED</span>' : ''}<br>${pi.from} to ${pi.to}</div><div class="pending-import-actions">${pi.processed ? `<button class="btn-revert-leave" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'revert')">⟲</button>` : `<button class="btn-accept-leave" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'approve')">✓</button>`} <button class="btn-del-leave" style="color: red; font-size: 14px;" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'reject')">×</button></div></div>`;
-            });
-        }
+        allPending.forEach((pi) => {
+            const isDenied = pi.status.toLowerCase().includes('denied');
+            const deniedTag = isDenied ? ' <span style="color: #e74c3c; font-weight: bold;">DENIED</span>' : '';
+            const mainAction = pi.processed ? `<button class="btn-revert-leave" title="Undo" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'revert')">⟲</button>` : `<button class="btn-accept-leave" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'approve')">✓</button>`;
+            
+            let timeDisplay = `${pi.from} to ${pi.to}`;
+            const targetShift = shifts[pi.sIdx];
+            if (targetShift) {
+                const sStartOff = parseTimeInput(targetShift.startRaw);
+                const sEndOff = sStartOff + targetShift.duration;
+                const pStartOff = parseTimeInput(pi.from);
+                const pEndOff = parseTimeInput(pi.to);
+                if (Math.abs(sStartOff - pStartOff) < 0.1 && Math.abs(sEndOff - pEndOff) < 0.1) {
+                    timeDisplay = "Shift";
+                }
+            }
+
+            importList.innerHTML += `<div class="pending-import-item ${pi.processed ? 'processed' : ''}"><div class="pending-import-data"><b>${pi.cpc}</b>: ${pi.type}${deniedTag}<br>${timeDisplay}</div><div class="pending-import-actions">${mainAction}<button class="btn-del-leave" style="color: red; font-size: 14px;" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'reject')">×</button></div></div>`;
+        });
+        
         counts.forEach((c, i) => { 
             const cell = document.getElementById(`cap-${i}`); cell.innerText = c || '-'; cell.className = 'cap-cell'; 
             const h = (i + START_HOUR) % 24; let match = false;
@@ -711,6 +761,10 @@
 
     function deleteLeave(si, li) { saveHistory(); shifts[si].leave.splice(li, 1); finishUpdate(); }
     function deleteXte(si, xi) { if(!shifts[si].xte) shifts[si].xte = []; saveHistory(); shifts[si].xte.splice(xi, 1); finishUpdate(); }
+    function deleteShift(i) { if(confirm("Delete?")) { saveHistory(); shifts.splice(i, 1); finishUpdate(); } }
+    function clearAllShifts() { if(confirm("Clear ALL?")) { saveHistory(); shifts = []; finishUpdate(); } }
+    function closeActionModal() { document.getElementById('actionOverlay').style.display = 'none'; }
+    function closeEditModal() { document.getElementById('editOverlay').style.display = 'none'; }
     initHeader(); loadDateData();
 </script>
 </body>
