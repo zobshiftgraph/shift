@@ -449,7 +449,10 @@
             const isChecked = document.getElementById('modalDaySup').checked;
             document.getElementById('daySupCheckbox').checked = isChecked;
             localStorage.setItem(`day_sup_checked_${document.getElementById('targetDate').value}`, isChecked);
+            
             let currentTime = "", currentDuration = 8;
+            let newShifts = [];
+            
             lines.forEach(line => {
                 const cleanLine = line.trim(); if (!cleanLine) return;
                 const timeMatch = cleanLine.match(/(\d{1,2})?(\d{2}(00|30|45))/);
@@ -460,26 +463,33 @@
                 }
                 const initialsRegex = /([A-Z]{2,3}\$?)/g; let match;
                 while ((match = initialsRegex.exec(cleanLine)) !== null) {
-                    if (currentTime) shifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
+                    if (currentTime) newShifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration });
                 }
             });
+
+            // Reconciliation logic: only add if different, remove if missing
+            let updatedShifts = [];
+            
+            // Keep existing shifts that match new data
+            shifts.forEach(existing => {
+                if (newShifts.some(ns => ns.initials === existing.initials && ns.startRaw === existing.startRaw && ns.duration === existing.duration)) {
+                    updatedShifts.push(existing);
+                }
+            });
+
+            // Add brand new shifts
+            newShifts.forEach(ns => {
+                if (!shifts.some(es => es.initials === ns.initials && es.startRaw === ns.startRaw && es.duration === ns.duration)) {
+                    updatedShifts.push({ ...ns, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
+                }
+            });
+
+            shifts = updatedShifts;
+
         } else {
-            let initialsToWipe = new Set();
-            let pasteCounter = 0; 
-
-            lines.forEach(line => {
-                const parts = line.split(/\t| {2,}/).map(p => p.trim());
-                if (parts.length < 1) return;
-                const cpcInitials = parts[0].toUpperCase();
-                initialsToWipe.add(cpcInitials);
-            });
-
-            shifts.forEach(s => {
-                if (initialsToWipe.has(s.initials)) {
-                    s.leave = [];
-                    s.pendingImport = [];
-                }
-            });
+            let initialsInPaste = new Set();
+            let newImportItems = [];
+            let pasteCounter = 0;
 
             lines.forEach(line => {
                 const cleanedLine = line.split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0];
@@ -487,12 +497,12 @@
                 if (!parts || parts.length < 2) return;
 
                 const cpc = parts.find(p => /^[A-Z]{2,3}$/.test(p.toUpperCase()))?.toUpperCase() || "";
+                initialsInPaste.add(cpc);
+
                 const typeRaw = parts.find(p => ["ANNUAL", "SICK", "SHIFT CHG", "XTU", "HOLIDAY", "ADMIN", "FURLOUGH"].includes(p.toUpperCase())) || "";
                 const statusStrRaw = (parts.find(p => ["APPROVED!", "PENDING", "DENIED"].includes(p.toUpperCase())) || "").toUpperCase();
 
-                if (typeRaw.toUpperCase() === "SHIFT CHG" && statusStrRaw === "APPROVED!") {
-                    return; 
-                }
+                if (typeRaw.toUpperCase() === "SHIFT CHG" && statusStrRaw === "APPROVED!") return; 
 
                 const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4})$/.test(p));
                 let fromRaw = timeParts[0] || (parts.find(p => p.toLowerCase() === "shift") || "");
@@ -507,20 +517,50 @@
                     }
                 }
 
-                pasteCounter++; 
+                pasteCounter++;
+                let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
+                newImportItems.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStrRaw, pasteOrder: pasteCounter });
+            });
 
-                if (statusStrRaw.includes("PENDING") || statusStrRaw.includes("DENIED")) {
-                    let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
-                    shifts.forEach(s => {
-                        if (s.initials === cpc) {
-                            if (!s.pendingImport) s.pendingImport = [];
-                            s.pendingImport.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStrRaw, processed: false, pasteOrder: pasteCounter });
+            // Reconcile for each CPC found in the paste
+            shifts.forEach(s => {
+                if (initialsInPaste.has(s.initials)) {
+                    const relevantNewItems = newImportItems.filter(ni => ni.cpc === s.initials);
+                    
+                    // Reconcile Applied Leave (Approved)
+                    let updatedLeave = [];
+                    const approvedNew = relevantNewItems.filter(ni => ni.status.includes("APPROVED"));
+                    
+                    // Keep existing leave if it's in the new approved list
+                    s.leave.forEach(existingLv => {
+                        if (approvedNew.some(an => an.from.replace(':','') === existingLv.startRaw && an.to.replace(':','') === existingLv.endRaw && an.type === existingLv.type)) {
+                            updatedLeave.push(existingLv);
                         }
                     });
-                } else if (statusStrRaw.includes("APPROVED")) {
-                    let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
-                    const row = { cpc, type, from: fromRaw, to: toRaw };
-                    shifts.forEach(s => { if (s.initials === row.cpc) applyImportAsLeave(s, row); });
+                    // Add new approved leave
+                    approvedNew.forEach(an => {
+                        const start = an.from.replace(':',''); const end = an.to.replace(':','');
+                        if (!s.leave.some(el => el.startRaw === start && el.endRaw === end)) {
+                            updatedLeave.push({ startRaw: start, endRaw: end, type: an.type });
+                        }
+                    });
+                    s.leave = updatedLeave;
+
+                    // Reconcile Pending Requests (Pending/Denied)
+                    let updatedPending = [];
+                    const pendingNew = relevantNewItems.filter(ni => ni.status.includes("PENDING") || ni.status.includes("DENIED"));
+
+                    s.pendingImport.forEach(existingPi => {
+                        if (pendingNew.some(pn => pn.from === existingPi.from && pn.to === existingPi.to && pn.type === existingPi.type && pn.status === existingPi.status)) {
+                            updatedPending.push(existingPi);
+                        }
+                    });
+                    pendingNew.forEach(pn => {
+                        if (!s.pendingImport.some(epi => epi.from === pn.from && epi.to === pn.to && epi.type === pn.type && epi.status === pn.status)) {
+                            updatedPending.push({ ...pn, processed: false });
+                        }
+                    });
+                    s.pendingImport = updatedPending;
                 }
             });
         }
@@ -617,7 +657,6 @@
             if (r && r.includes('-')) { 
                 const [st, en] = r.split('-'), cleanSt = st.trim().padStart(4,'0'), cleanEn = en.trim().padStart(4,'0'); 
                 saveHistory(); 
-                // Updated Logic: Label specifically as "LV" if using the button
                 if(type === 'leave') s.leave.push({ startRaw: cleanSt, endRaw: cleanEn, type: 'LV' }); 
                 else { if(!s.xte) s.xte = []; s.xte.push({ startRaw: cleanSt, endRaw: cleanEn }); } 
                 finishUpdate(); closeActionModal(); 
@@ -702,14 +741,19 @@
                 bar.style.left = (overallStartOff / TOTAL_HOURS * 100) + '%';
                 bar.style.width = (visualDuration / TOTAL_HOURS * 100) + '%';
                 bar.innerHTML = `<span class="bar-text">${s.initials} ${formatTimeFromOffset(overallStartOff)}-${formatTimeFromOffset(overallEndOff)} (${overallEndOff - overallStartOff}hr)</span>`;
-                shifts.forEach(traineeShift => { if (traineeShift.trainer === s.initials && traineeReg.includes(traineeShift.initials) && !traineeShift.asStaff) { const tStart = parseTimeInput(traineeShift.startRaw), overlapStart = Math.max(overallStartOff, tStart), overlapEnd = Math.min(overallEndOff, tStart + traineeShift.duration); if (overlapEnd > overlapStart) { const stripe = document.createElement('div'); stripe.className = 'training-overlap-overlay'; stripe.style.left = ((overlapStart - overallStartOff) / visualDuration * 100) + '%'; stripe.style.width = ((overlapEnd - overlapStart) / visualDuration * 100) + '%'; bar.appendChild(stripe); } } });
+                
+                if (!isGreyedOut) {
+                    shifts.forEach(traineeShift => { if (traineeShift.trainer === s.initials && traineeReg.includes(traineeShift.initials) && !traineeShift.asStaff) { const tStart = parseTimeInput(traineeShift.startRaw), overlapStart = Math.max(overallStartOff, tStart), overlapEnd = Math.min(overallEndOff, tStart + traineeShift.duration); if (overlapEnd > overlapStart) { const stripe = document.createElement('div'); stripe.className = 'training-overlap-overlay'; stripe.style.left = ((overlapStart - overallStartOff) / visualDuration * 100) + '%'; stripe.style.width = ((overlapEnd - overlapStart) / visualDuration * 100) + '%'; bar.appendChild(stripe); } } });
+                }
+
                 (s.xte || []).forEach(xt => { const xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); const xOver = document.createElement('div'); xOver.className = `xte-overlay ${isDraft && original && (!original.xte || !original.xte.some(oxt => oxt.startRaw === xt.startRaw && oxt.endRaw === xt.endRaw)) ? 'is-changed' : ''}`; xOver.style.left = ((xtS - overallStartOff) / visualDuration * 100) + '%'; xOver.style.width = ((Math.min(xtE, overallEndOff) - xtS) / visualDuration * 100) + '%'; xOver.innerText = `XTE ${xt.startRaw}-${xt.endRaw}`; bar.appendChild(xOver); });
                 if (s.status !== 'inactive' && !isTrainee) {
                     let hSlot = baseEndOff - 1;
                     const lvEnd = (s.leave || []).find(lv => Math.abs(parseTimeInput(lv.endRaw) - baseEndOff) <= 1 && ["AL", "SL", "HL", "Admin", "XTU", "FURLOUGH", "LV"].includes(lv.type));
                     const hasXTEAtEnd = (s.xte || []).some(xt => Math.abs(parseTimeInput(xt.startRaw) - baseEndOff) < 0.1);
                     if (lvEnd) hSlot = parseTimeInput(lvEnd.startRaw) - 1;
-                    if (!(overallEndOff > 17 || (parseInt(formatTimeFromOffset(overallEndOff)) >= 300 && parseInt(formatTimeFromOffset(overallEndOff)) <= 800)) && !hasXTEAtEnd) {
+                    
+                    if (!(overallEndOff > 17 || (parseInt(formatTimeFromOffset(overallEndOff)) >= 300 && parseInt(formatTimeFromOffset(overallEndOff)) <= 800)) && !hasXTEAtEnd && !isGreyedOut) {
                         let hOver = document.createElement('div'); hOver.className = 'handover-overlay'; hOver.style.left = ((hSlot - overallStartOff) / visualDuration * 100) + '%'; hOver.style.width = (1 / visualDuration * 100) + '%'; bar.appendChild(hOver); 
                     }
                 }
