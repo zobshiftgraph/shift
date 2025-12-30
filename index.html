@@ -107,6 +107,7 @@
         .sidebar { flex: 1; background: white; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; max-width: 250px; flex-shrink: 0; }
         .shift-list { flex: 1; overflow-y: auto; padding: 10px; }
         .list-item { padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 11px; position: relative; }
+        .list-item.is-trainee-item { background-color: #f1e6ff; }
         .registry-shift-info { display: block; font-size: 10px; color: #666; margin-top: 1px; }
 
         .pending-import-section { border-top: 3px solid var(--draft-color); padding: 10px; background: #fef9ff; max-height: 400px; overflow-y: auto; }
@@ -662,7 +663,7 @@
         sortedShifts.forEach((s) => {
             const originalIdx = shifts.indexOf(s);
             if (handledIndices.has(originalIdx)) return;
-            if (s.trainer && traineeReg.includes(s.initials) && !s.asStaff && shifts.some(sh => sh.initials === s.trainer)) return;
+            if (s.trainer && traineeReg.includes(s.initials) && !s.asStaff && shifts.some(sh => h.initials === s.trainer)) return;
             finalDisplayOrder.push(s); handledIndices.add(originalIdx);
             sortedShifts.forEach((traineeCand) => {
                 const tIdx = shifts.indexOf(traineeCand);
@@ -722,10 +723,18 @@
             
             let trC = ''; staffingCheck = '';
             if (isTInReg) {
-                trC = `<div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;"><label style="font-size: 9px; font-weight: bold;">TRAINER</label><select class="trainer-select" onchange="setTrainer(${originalIdx}, this.value)">${[''].concat(shifts.filter(o => o.initials !== s.initials).map(o => o.initials)).map(init => `<option value="${init}" ${s.trainer === init ? 'selected' : ''}>${init || 'None'}</option>`).join('')}</select></div>`;
+                if (!s.asStaff) {
+                    trC = `<div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;"><label style="font-size: 9px; font-weight: bold;">TRAINER</label><select class="trainer-select" onchange="setTrainer(${originalIdx}, this.value)">${[''].concat(shifts.filter(o => o.initials !== s.initials).map(o => o.initials)).map(init => `<option value="${init}" ${s.trainer === init ? 'selected' : ''}>${init || 'None'}</option>`).join('')}</select></div>`;
+                }
                 staffingCheck = `<label style="font-size: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-top: 5px;"><input type="checkbox" style="width:12px; height:12px;" ${s.asStaff ? 'checked' : ''} onchange="toggleAsStaff(${originalIdx}, this.checked)"> Staffing</label>`;
             }
-            list.innerHTML += `<div class="list-item" style="${isTInReg && !s.asStaff ? 'border-left: 4px solid var(--trainee);' : ''}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
+            
+            // Modified logic: Item gets purple background ONLY if not in staffing.
+            // But it ALWAYS keeps the 4px left border if it's in the trainee registry.
+            const itemClass = isTInReg && !s.asStaff ? 'list-item is-trainee-item' : 'list-item';
+            const traineeBarStyle = isTInReg ? 'border-left: 4px solid var(--trainee);' : '';
+            
+            list.innerHTML += `<div class="${itemClass}" style="${traineeBarStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
         });
 
         allPending.forEach((pi) => {
