@@ -291,13 +291,6 @@
         const nowLinePref = localStorage.getItem('show_now_line');
         document.getElementById('showNowLineCheckbox').checked = nowLinePref === null ? true : nowLinePref === 'true';
         
-        // Modal Input Enter Key Handlers
-        document.getElementById('actionRangeInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnActionConfirm').click(); });
-        document.getElementById('editInitInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
-        document.getElementById('editStartInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
-        document.getElementById('editDurInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
-        document.getElementById('multiInitials').addEventListener('keypress', (e) => { if(e.key === 'Enter') saveShift(); });
-
         initHeader(); 
         loadDateData(); 
     };
@@ -415,13 +408,6 @@
 
     function getCurrentRelativeHour() {
         const now = new Date();
-        const targetDateInput = document.getElementById('targetDate').value;
-        if (!targetDateInput) return null;
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const localTodayStr = `${year}-${month}-${day}`;
-        if (targetDateInput !== localTodayStr) return null;
         const hrs = now.getHours();
         const mins = now.getMinutes();
         let relHours = hrs + (mins / 60);
@@ -496,7 +482,8 @@
 
             lines.forEach(line => {
                 const cleanedLine = line.split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0];
-                const parts = cleanedLine.match(/(Annual|Sick|Shift Chg|XTU|Holiday|Admin|Furlough)|(Shift|Approved!|Pending|Denied)|(\d{1,2}:\d{2})|(\d{4})|([A-Z]{2,3})/gi);
+                // Modified regex to catch 1300-7 style durations
+                const parts = cleanedLine.match(/(Annual|Sick|Shift Chg|XTU|Holiday|Admin|Furlough)|(Shift|Approved!|Pending|Denied)|(\d{1,2}:\d{2})|(\d{4}(-\d+)?)|([A-Z]{2,3})/gi);
                 if (!parts || parts.length < 2) return;
 
                 const cpc = parts.find(p => /^[A-Z]{2,3}$/.test(p.toUpperCase()))?.toUpperCase() || "";
@@ -506,7 +493,7 @@
 
                 if (typeRaw.toUpperCase() === "SHIFT CHG" && statusStrRaw === "APPROVED!") return; 
 
-                const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4})$/.test(p));
+                const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4}(-\d+)?)$/.test(p));
                 let fromRaw = timeParts[0] || (parts.find(p => p.toLowerCase() === "shift") || "");
                 let toRaw = timeParts[1] || "";
 
@@ -529,6 +516,7 @@
                     const relevantNewItems = newImportItems.filter(ni => ni.cpc === s.initials);
                     let updatedLeave = [];
                     const approvedNew = relevantNewItems.filter(ni => ni.status.includes("APPROVED"));
+                    
                     s.leave.forEach(existingLv => {
                         if (approvedNew.some(an => an.from.replace(':','') === existingLv.startRaw && an.to.replace(':','') === existingLv.endRaw && an.type === existingLv.type)) {
                             updatedLeave.push(existingLv);
@@ -578,11 +566,17 @@
             row.processed = true; 
             if (row.type === "SHIFT CHG") {
                 row.origStart = shifts[shiftIdx].startRaw; row.origDur = shifts[shiftIdx].duration;
-                let newStart = row.to.replace(':',''), newDur = 8;
-                if (newStart.includes('-')) { const parts = newStart.split('-'); newStart = parts[0]; newDur = parseFloat(parts[1]); }
-                shifts[shiftIdx].startRaw = newStart; shifts[shiftIdx].duration = newDur;
+                // Parse duration from string like "1300-7"
+                let timeStr = row.to.replace(':','');
+                let newStart = timeStr, newDur = 8;
+                if (timeStr.includes('-')) { 
+                    const parts = timeStr.split('-'); 
+                    newStart = parts[0]; 
+                    newDur = parseFloat(parts[1]); 
+                }
+                shifts[shiftIdx].startRaw = newStart; 
+                shifts[shiftIdx].duration = newDur;
             } else { 
-                // Logic updated: Handle XTU and other approved types correctly
                 const fromRaw = row.from.replace(':', '');
                 const toRaw = row.to.replace(':', '');
                 if (!shifts[shiftIdx].leave) shifts[shiftIdx].leave = [];
@@ -617,7 +611,7 @@
     
     function parseTimeInput(val) {
         if(!val) return 0;
-        let cleaned = val.toString().replace(':', '');
+        let cleaned = val.toString().replace(':', '').split('-')[0];
         if (cleaned.length < 3) return 0;
         let h = parseInt(cleaned.substring(0, cleaned.length - 2)), m = parseInt(cleaned.substring(cleaned.length - 2));
         let rel = h + (m / 60); if (h < START_HOUR) rel += 24;
@@ -745,7 +739,7 @@
                         let hOver = document.createElement('div'); hOver.className = 'handover-overlay'; hOver.style.left = ((hSlot - overallStartOff) / visualDuration * 100) + '%'; hOver.style.width = (1 / visualDuration * 100) + '%'; bar.appendChild(hOver); 
                     }
                 }
-                (s.leave || []).forEach(lv => { const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw); const lOver = document.createElement('div'); lOver.className = 'leave-overlay'; lOver.style.left = ((lvS - overallStartOff) / visualDuration * 100) + '%'; lOver.style.width = ((Math.min(lvE, overallEndOff) - lvS) / visualDuration * 100) + '%'; lOver.innerText = `${lv.type} ${lv.startRaw}-${lv.endRaw}`; bar.appendChild(lOver); });
+                (s.leave || []).forEach(lv => { const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw); const lOver = document.createElement('div'); lOver.className = `leave-overlay`; lOver.style.left = ((lvS - overallStartOff) / visualDuration * 100) + '%'; lOver.style.width = ((Math.min(lvE, overallEndOff) - lvS) / visualDuration * 100) + '%'; lOver.innerText = `${lv.type} ${lv.startRaw}-${lv.endRaw}`; bar.appendChild(lOver); });
                 row.appendChild(bar); chart.appendChild(row);
             }
         });
