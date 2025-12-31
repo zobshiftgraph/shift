@@ -451,7 +451,7 @@
             localStorage.setItem(`day_sup_checked_${document.getElementById('targetDate').value}`, isChecked);
             
             let currentTime = "", currentDuration = 8;
-            let newShifts = [];
+            let incomingParsedShifts = [];
             
             lines.forEach(line => {
                 const cleanLine = line.trim(); if (!cleanLine) return;
@@ -463,22 +463,31 @@
                 }
                 const initialsRegex = /([A-Z]{2,3}\$?)/g; let match;
                 while ((match = initialsRegex.exec(cleanLine)) !== null) {
-                    if (currentTime) newShifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration });
+                    if (currentTime) incomingParsedShifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration });
                 }
             });
 
-            let updatedShifts = [];
-            shifts.forEach(existing => {
-                if (newShifts.some(ns => ns.initials === existing.initials && ns.startRaw === existing.startRaw && ns.duration === existing.duration)) {
-                    updatedShifts.push(existing);
+            incomingParsedShifts.forEach(incoming => {
+                const iStart = parseTimeInput(incoming.startRaw);
+                let replaced = false;
+
+                for (let existing of shifts) {
+                    if (existing.initials === incoming.initials) {
+                        const eStart = parseTimeInput(existing.startRaw);
+                        const eEnd = eStart + existing.duration;
+                        const gapHours = Math.abs(iStart - eEnd);
+                        if (gapHours < 10) {
+                            existing.startRaw = incoming.startRaw;
+                            existing.duration = incoming.duration;
+                            replaced = true;
+                            break;
+                        }
+                    }
+                }
+                if (!replaced) {
+                    shifts.push({ initials: incoming.initials, startRaw: incoming.startRaw, duration: incoming.duration, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
                 }
             });
-            newShifts.forEach(ns => {
-                if (!shifts.some(es => es.initials === ns.initials && es.startRaw === ns.startRaw && es.duration === ns.duration)) {
-                    updatedShifts.push({ ...ns, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
-                }
-            });
-            shifts = updatedShifts;
 
         } else {
             let initialsInPaste = new Set();
@@ -520,7 +529,6 @@
                     const relevantNewItems = newImportItems.filter(ni => ni.cpc === s.initials);
                     let updatedLeave = [];
                     const approvedNew = relevantNewItems.filter(ni => ni.status.includes("APPROVED"));
-                    
                     s.leave.forEach(existingLv => {
                         if (approvedNew.some(an => an.from.replace(':','') === existingLv.startRaw && an.to.replace(':','') === existingLv.endRaw && an.type === existingLv.type)) {
                             updatedLeave.push(existingLv);
@@ -573,7 +581,13 @@
                 let newStart = row.to.replace(':',''), newDur = 8;
                 if (newStart.includes('-')) { const parts = newStart.split('-'); newStart = parts[0]; newDur = parseFloat(parts[1]); }
                 shifts[shiftIdx].startRaw = newStart; shifts[shiftIdx].duration = newDur;
-            } else { applyImportAsLeave(shifts[shiftIdx], row); }
+            } else { 
+                // Logic updated: Handle XTU and other approved types correctly
+                const fromRaw = row.from.replace(':', '');
+                const toRaw = row.to.replace(':', '');
+                if (!shifts[shiftIdx].leave) shifts[shiftIdx].leave = [];
+                shifts[shiftIdx].leave.push({ startRaw: fromRaw, endRaw: toRaw, type: row.type });
+            }
         } else if (action === 'revert') {
             row.processed = false;
             if (row.type === "SHIFT CHG") { shifts[shiftIdx].startRaw = row.origStart; shifts[shiftIdx].duration = row.origDur; }
@@ -709,21 +723,19 @@
             (s.xte || []).forEach(xt => { let xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); overallStartOff = Math.min(overallStartOff, xtS); overallEndOff = Math.max(overallEndOff, xtE); });
             const isTrainee = traineeReg.includes(s.initials) && !s.asStaff;
             const isGreyedOut = showNowLine && (currentRelHour !== null && currentRelHour >= overallEndOff);
-            let original = originalShifts.find(orig => orig.initials === s.initials && orig.startRaw === s.startRaw);
-            let barIsNew = isDraft && !original, barShiftIsChanged = isDraft && original && (s.startRaw !== original.startRaw || s.duration !== original.duration || s.status !== original.status);
             if (s.status !== 'inactive' && !isTrainee) { for(let h=0; h<TOTAL_HOURS; h++) { const isLeave = (s.leave || []).some(lv => Math.max(parseTimeInput(lv.startRaw), h) < Math.min(parseTimeInput(lv.endRaw), h+1)); if(Math.max(overallStartOff, h) < Math.min(overallEndOff, h+1) && !isLeave && !((h+START_HOUR)%24 < 20 && h >= (overallEndOff - 1))) counts[h]++; } }
             let visualDuration = Math.min(overallEndOff, TOTAL_HOURS) - overallStartOff;
             if (visualDuration > 0) {
                 const row = document.createElement('div'); row.className = 'shift-row'; 
                 const bar = document.createElement('div');
-                bar.className = `shift-bar ${isTrainee ? 'trainee-bar' : ''} ${isGreyedOut || s.status === 'inactive' ? 'inactive-bar' : ''} ${(barIsNew || barShiftIsChanged) ? 'is-changed' : ''}`;
+                bar.className = `shift-bar ${isTrainee ? 'trainee-bar' : ''} ${isGreyedOut || s.status === 'inactive' ? 'inactive-bar' : ''}`;
                 bar.style.left = (overallStartOff / TOTAL_HOURS * 100) + '%';
                 bar.style.width = (visualDuration / TOTAL_HOURS * 100) + '%';
                 bar.innerHTML = `<span class="bar-text">${s.initials} ${formatTimeFromOffset(overallStartOff)}-${formatTimeFromOffset(overallEndOff)} (${overallEndOff - overallStartOff}hr)</span>`;
                 if (!isGreyedOut) {
                     shifts.forEach(traineeShift => { if (traineeShift.trainer === s.initials && traineeReg.includes(traineeShift.initials) && !traineeShift.asStaff) { const tStart = parseTimeInput(traineeShift.startRaw), overlapStart = Math.max(overallStartOff, tStart), overlapEnd = Math.min(overallEndOff, tStart + traineeShift.duration); if (overlapEnd > overlapStart) { const stripe = document.createElement('div'); stripe.className = 'training-overlap-overlay'; stripe.style.left = ((overlapStart - overallStartOff) / visualDuration * 100) + '%'; stripe.style.width = ((overlapEnd - overlapStart) / visualDuration * 100) + '%'; bar.appendChild(stripe); } } });
                 }
-                (s.xte || []).forEach(xt => { const xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); const xOver = document.createElement('div'); xOver.className = `xte-overlay ${isDraft && original && (!original.xte || !original.xte.some(oxt => oxt.startRaw === xt.startRaw && oxt.endRaw === xt.endRaw)) ? 'is-changed' : ''}`; xOver.style.left = ((xtS - overallStartOff) / visualDuration * 100) + '%'; xOver.style.width = ((Math.min(xtE, overallEndOff) - xtS) / visualDuration * 100) + '%'; xOver.innerText = `XTE ${xt.startRaw}-${xt.endRaw}`; bar.appendChild(xOver); });
+                (s.xte || []).forEach(xt => { const xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); const xOver = document.createElement('div'); xOver.className = 'xte-overlay'; xOver.style.left = ((xtS - overallStartOff) / visualDuration * 100) + '%'; xOver.style.width = ((Math.min(xtE, overallEndOff) - xtS) / visualDuration * 100) + '%'; xOver.innerText = `XTE ${xt.startRaw}-${xt.endRaw}`; bar.appendChild(xOver); });
                 if (s.status !== 'inactive' && !isTrainee) {
                     let hSlot = baseEndOff - 1;
                     const lvEnd = (s.leave || []).find(lv => Math.abs(parseTimeInput(lv.endRaw) - baseEndOff) <= 1 && ["AL", "SL", "HL", "Admin", "XTU", "FURLOUGH", "LV"].includes(lv.type));
@@ -733,7 +745,7 @@
                         let hOver = document.createElement('div'); hOver.className = 'handover-overlay'; hOver.style.left = ((hSlot - overallStartOff) / visualDuration * 100) + '%'; hOver.style.width = (1 / visualDuration * 100) + '%'; bar.appendChild(hOver); 
                     }
                 }
-                (s.leave || []).forEach(lv => { const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw); const lOver = document.createElement('div'); lOver.className = `leave-overlay ${isDraft && original && (!original.leave || !original.leave.some(olv => olv.startRaw === lv.startRaw && olv.endRaw === lv.endRaw)) ? 'is-changed' : ''}`; lOver.style.left = ((lvS - overallStartOff) / visualDuration * 100) + '%'; lOver.style.width = ((Math.min(lvE, overallEndOff) - lvS) / visualDuration * 100) + '%'; lOver.innerText = `${lv.type} ${lv.startRaw}-${lv.endRaw}`; bar.appendChild(lOver); });
+                (s.leave || []).forEach(lv => { const lvS = parseTimeInput(lv.startRaw), lvE = parseTimeInput(lv.endRaw); const lOver = document.createElement('div'); lOver.className = 'leave-overlay'; lOver.style.left = ((lvS - overallStartOff) / visualDuration * 100) + '%'; lOver.style.width = ((Math.min(lvE, overallEndOff) - lvS) / visualDuration * 100) + '%'; lOver.innerText = `${lv.type} ${lv.startRaw}-${lv.endRaw}`; bar.appendChild(lOver); });
                 row.appendChild(bar); chart.appendChild(row);
             }
         });
@@ -744,7 +756,6 @@
             let trC = ''; staffingCheck = '';
             if (isTInReg) {
                 if (!s.asStaff) {
-                    // Modification: Filter shifts to exclude any that are in the trainee registry unless asStaff is checked
                     const potentialTrainers = shifts.filter(o => o.initials !== s.initials && (!traineeReg.includes(o.initials) || o.asStaff));
                     trC = `<div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;"><label style="font-size: 9px; font-weight: bold;">TRAINER</label><select class="trainer-select" onchange="setTrainer(${originalIdx}, this.value)"><option value="">None</option>${potentialTrainers.map(o => `<option value="${o.initials}" ${s.trainer === o.initials ? 'selected' : ''}>${o.initials}</option>`).join('')}</select></div>`;
                 }
