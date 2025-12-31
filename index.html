@@ -280,6 +280,7 @@
     let historyStack = [];
     let redoStack = [];
     let isDraft = false;
+    const OFF_TYPES = ["X", "HOLIDAY", "ANNUAL", "SICK", "XTU", "ADMIN", "FURLOUGH", "FSL"];
 
     window.onload = function() { 
         const now = new Date();
@@ -291,6 +292,13 @@
         const nowLinePref = localStorage.getItem('show_now_line');
         document.getElementById('showNowLineCheckbox').checked = nowLinePref === null ? true : nowLinePref === 'true';
         
+        // Modal Input Enter Key Handlers
+        document.getElementById('actionRangeInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnActionConfirm').click(); });
+        document.getElementById('editInitInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
+        document.getElementById('editStartInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
+        document.getElementById('editDurInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
+        document.getElementById('multiInitials').addEventListener('keypress', (e) => { if(e.key === 'Enter') saveShift(); });
+
         initHeader(); 
         loadDateData(); 
     };
@@ -408,6 +416,9 @@
 
     function getCurrentRelativeHour() {
         const now = new Date();
+        const targetDateInput = document.getElementById('targetDate').value;
+        const todayStr = now.toISOString().split('T')[0];
+        if (targetDateInput !== todayStr) return null;
         const hrs = now.getHours();
         const mins = now.getMinutes();
         let relHours = hrs + (mins / 60);
@@ -417,8 +428,12 @@
     function updateNowLine() {
         const line = document.getElementById('nowLine');
         const showLine = document.getElementById('showNowLineCheckbox').checked;
+        const targetDateInput = document.getElementById('targetDate').value;
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const isToday = (targetDateInput === todayStr);
         const offset = getCurrentRelativeHour();
-        if (showLine && offset !== null && offset >= 0 && offset <= TOTAL_HOURS) {
+        if (showLine && isToday && offset !== null && offset >= 0 && offset <= TOTAL_HOURS) {
             line.style.display = 'block';
             line.style.left = (offset / TOTAL_HOURS * 100) + '%';
         } else { line.style.display = 'none'; }
@@ -435,10 +450,8 @@
             const isChecked = document.getElementById('modalDaySup').checked;
             document.getElementById('daySupCheckbox').checked = isChecked;
             localStorage.setItem(`day_sup_checked_${document.getElementById('targetDate').value}`, isChecked);
-            
-            let currentTime = "", currentDuration = 8;
             let incomingParsedShifts = [];
-            
+            let currentTime = "", currentDuration = 8;
             lines.forEach(line => {
                 const cleanLine = line.trim(); if (!cleanLine) return;
                 const timeMatch = cleanLine.match(/(\d{1,2})?(\d{2}(00|30|45))/);
@@ -452,121 +465,77 @@
                     if (currentTime) incomingParsedShifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration });
                 }
             });
-
             incomingParsedShifts.forEach(incoming => {
                 const iStart = parseTimeInput(incoming.startRaw);
-                let replaced = false;
-
+                let matched = false;
                 for (let existing of shifts) {
+                    if (existing.initials === incoming.initials && existing.startRaw === incoming.startRaw && existing.duration === incoming.duration) { matched = true; break; }
                     if (existing.initials === incoming.initials) {
                         const eStart = parseTimeInput(existing.startRaw);
-                        const eEnd = eStart + existing.duration;
-                        const gapHours = Math.abs(iStart - eEnd);
-                        if (gapHours < 10) {
-                            existing.startRaw = incoming.startRaw;
-                            existing.duration = incoming.duration;
-                            replaced = true;
-                            break;
-                        }
+                        const gapHours = Math.abs(iStart - (eStart + existing.duration));
+                        if (gapHours < 10) { existing.startRaw = incoming.startRaw; existing.duration = incoming.duration; matched = true; break; }
                     }
                 }
-                if (!replaced) {
-                    shifts.push({ initials: incoming.initials, startRaw: incoming.startRaw, duration: incoming.duration, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
-                }
+                if (!matched) shifts.push({ initials: incoming.initials, startRaw: incoming.startRaw, duration: incoming.duration, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
             });
-
         } else {
             let initialsInPaste = new Set();
             let newImportItems = [];
             let pasteCounter = 0;
-
             lines.forEach(line => {
                 const cleanedLine = line.split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0];
-                // Modified regex to catch 1300-7 style durations
-                const parts = cleanedLine.match(/(Annual|Sick|Shift Chg|XTU|Holiday|Admin|Furlough)|(Shift|Approved!|Pending|Denied)|(\d{1,2}:\d{2})|(\d{4}(-\d+)?)|([A-Z]{2,3})/gi);
+                const parts = cleanedLine.match(/(Annual|Sick|Shift Chg|XTU|Holiday|Admin|Furlough|FSL)|(Shift|Approved!|Pending|Denied|X)|(\d{1,2}:\d{2})|(\d{4}(-\d+)?)|([A-Z]{2,3})/gi);
                 if (!parts || parts.length < 2) return;
 
                 const cpc = parts.find(p => /^[A-Z]{2,3}$/.test(p.toUpperCase()))?.toUpperCase() || "";
                 initialsInPaste.add(cpc);
-                const typeRaw = parts.find(p => ["ANNUAL", "SICK", "SHIFT CHG", "XTU", "HOLIDAY", "ADMIN", "FURLOUGH"].includes(p.toUpperCase())) || "";
+                const typeRaw = (parts.find(p => ["ANNUAL", "SICK", "SHIFT CHG", "XTU", "HOLIDAY", "ADMIN", "FURLOUGH", "FSL"].includes(p.toUpperCase())) || "").toUpperCase();
                 const statusStrRaw = (parts.find(p => ["APPROVED!", "PENDING", "DENIED"].includes(p.toUpperCase())) || "").toUpperCase();
 
-                if (typeRaw.toUpperCase() === "SHIFT CHG" && statusStrRaw === "APPROVED!") return; 
+                if (typeRaw === "SHIFT CHG" && statusStrRaw === "APPROVED!") return; 
 
                 const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4}(-\d+)?)$/.test(p));
-                let fromRaw = timeParts[0] || (parts.find(p => p.toLowerCase() === "shift") || "");
-                let toRaw = timeParts[1] || "";
-
-                if (fromRaw.toLowerCase() === "shift") {
-                    const targetShift = shifts.find(s => s.initials === cpc);
-                    if (targetShift) {
-                        const sStart = parseTimeInput(targetShift.startRaw);
-                        fromRaw = formatTimeFromOffset(sStart);
-                        toRaw = formatTimeFromOffset(sStart + targetShift.duration);
-                    }
-                }
+                let fromRaw = parts.find(p => OFF_TYPES.includes(p.toUpperCase()) || p.toLowerCase() === "shift") || timeParts[0] || "";
+                let toRaw = OFF_TYPES.includes(fromRaw.toUpperCase()) ? (timeParts[0] || "") : (timeParts[1] || timeParts[0] || "");
 
                 pasteCounter++;
-                let type = typeRaw.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
+                let type = typeRaw.replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
                 newImportItems.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStrRaw, pasteOrder: pasteCounter });
             });
 
-            shifts.forEach(s => {
-                if (initialsInPaste.has(s.initials)) {
-                    const relevantNewItems = newImportItems.filter(ni => ni.cpc === s.initials);
-                    let updatedLeave = [];
-                    const approvedNew = relevantNewItems.filter(ni => ni.status.includes("APPROVED"));
-                    
-                    s.leave.forEach(existingLv => {
-                        if (approvedNew.some(an => an.from.replace(':','') === existingLv.startRaw && an.to.replace(':','') === existingLv.endRaw && an.type === existingLv.type)) {
-                            updatedLeave.push(existingLv);
-                        }
-                    });
-                    approvedNew.forEach(an => {
-                        const start = an.from.replace(':',''); const end = an.to.replace(':','');
-                        if (!s.leave.some(el => el.startRaw === start && el.endRaw === end)) {
-                            updatedLeave.push({ startRaw: start, endRaw: end, type: an.type });
-                        }
-                    });
-                    s.leave = updatedLeave;
+            initialsInPaste.forEach(initial => {
+                let existingShift = shifts.find(s => s.initials === initial);
+                if (existingShift) existingShift.pendingImport = [];
+                else shifts.push({ initials: initial, startRaw: '0000', duration: 0, leave: [], pendingLeave: [], xte: [], status: 'inactive', asStaff: false, trainer: '', pendingImport: [], isGhost: true });
+            });
 
-                    let updatedPending = [];
-                    const pendingNew = relevantNewItems.filter(ni => ni.status.includes("PENDING") || ni.status.includes("DENIED"));
-                    s.pendingImport.forEach(existingPi => {
-                        if (pendingNew.some(pn => pn.from === existingPi.from && pn.to === existingPi.to && pn.type === existingPi.type && pn.status === existingPi.status)) {
-                            updatedPending.push(existingPi);
-                        }
-                    });
-                    pendingNew.forEach(pn => {
-                        if (!s.pendingImport.some(epi => epi.from === pn.from && epi.to === pn.to && epi.type === pn.type && epi.status === pn.status)) {
-                            updatedPending.push({ ...pn, processed: false });
-                        }
-                    });
-                    s.pendingImport = updatedPending;
+            newImportItems.forEach(ni => {
+                let targetShift = shifts.find(s => s.initials === ni.cpc);
+                if (ni.status.includes("PENDING") || ni.status.includes("DENIED")) targetShift.pendingImport.push({ ...ni, processed: false });
+                else if (ni.status.includes("APPROVED")) {
+                    if (OFF_TYPES.includes(ni.from.toUpperCase())) return; 
+                    if (ni.from.toLowerCase() === "shift" && !targetShift.isGhost) {
+                        const sStart = parseTimeInput(targetShift.startRaw);
+                        ni.from = formatTimeFromOffset(sStart); ni.to = formatTimeFromOffset(sStart + targetShift.duration);
+                    }
+                    targetShift.leave.push({ startRaw: ni.from.replace(':',''), endRaw: ni.to.replace(':',''), type: ni.type });
                 }
             });
         }
         document.getElementById('bulkPasteInput').value = ''; finishUpdate(); togglePaste(false);
     }
 
-    function applyImportAsLeave(shift, row) {
-        let fromTime = row.from, toTime = row.to;
-        const sStartOff = parseTimeInput(shift.startRaw), sEndOff = sStartOff + shift.duration;
-        const lStartOff = parseTimeInput(fromTime), lEndOff = parseTimeInput(toTime);
-        if (lStartOff >= sStartOff && lEndOff <= sEndOff) {
-            if (!shift.leave) shift.leave = [];
-            shift.leave.push({ startRaw: fromTime.replace(':',''), endRaw: toTime.replace(':',''), type: row.type });
-        }
-    }
-
     function handleImportAction(shiftIdx, piIdx, action) {
         saveHistory();
-        const row = shifts[shiftIdx].pendingImport[piIdx];
+        const s = shifts[shiftIdx];
+        const row = s.pendingImport[piIdx];
+        
         if (action === 'approve') {
             row.processed = true; 
+            row.origStart = s.startRaw;
+            row.origDur = s.duration;
+
             if (row.type === "SHIFT CHG") {
-                row.origStart = shifts[shiftIdx].startRaw; row.origDur = shifts[shiftIdx].duration;
-                // Parse duration from string like "1300-7"
                 let timeStr = row.to.replace(':','');
                 let newStart = timeStr, newDur = 8;
                 if (timeStr.includes('-')) { 
@@ -574,19 +543,31 @@
                     newStart = parts[0]; 
                     newDur = parseFloat(parts[1]); 
                 }
-                shifts[shiftIdx].startRaw = newStart; 
-                shifts[shiftIdx].duration = newDur;
+                s.startRaw = newStart; 
+                s.duration = newDur;
+                s.status = 'active'; 
+                s.isGhost = false;
             } else { 
-                const fromRaw = row.from.replace(':', '');
+                const fromRaw = (OFF_TYPES.includes(row.from.toUpperCase())) ? s.startRaw : row.from.replace(':', '');
                 const toRaw = row.to.replace(':', '');
-                if (!shifts[shiftIdx].leave) shifts[shiftIdx].leave = [];
-                shifts[shiftIdx].leave.push({ startRaw: fromRaw, endRaw: toRaw, type: row.type });
+                if (!s.leave) s.leave = [];
+                s.leave.push({ startRaw: fromRaw, endRaw: toRaw, type: row.type });
             }
         } else if (action === 'revert') {
             row.processed = false;
-            if (row.type === "SHIFT CHG") { shifts[shiftIdx].startRaw = row.origStart; shifts[shiftIdx].duration = row.origDur; }
-            else { let fromTime = row.from.replace(':',''); shifts[shiftIdx].leave = (shifts[shiftIdx].leave || []).filter(lv => lv.startRaw !== fromTime); }
-        } else if (action === 'reject') { if (row.processed) handleImportAction(shiftIdx, piIdx, 'revert'); shifts[shiftIdx].pendingImport.splice(piIdx, 1); }
+            if (row.type === "SHIFT CHG") {
+                s.startRaw = row.origStart || '0000';
+                s.duration = row.origDur || 0;
+                if(s.isGhost && s.duration === 0) s.status = 'inactive';
+            } else { 
+                const reqStart = (OFF_TYPES.includes(row.from.toUpperCase()) || row.from.toLowerCase() === "shift") ? row.origStart : row.from.replace(':', '');
+                const reqEnd = row.to.replace(':', '');
+                s.leave = (s.leave || []).filter(lv => !(lv.startRaw === reqStart && lv.endRaw === reqEnd && lv.type === row.type));
+            }
+        } else if (action === 'reject') { 
+            if (row.processed) handleImportAction(shiftIdx, piIdx, 'revert'); 
+            s.pendingImport.splice(piIdx, 1); 
+        }
         finishUpdate();
     }
 
@@ -610,7 +591,7 @@
     }
     
     function parseTimeInput(val) {
-        if(!val) return 0;
+        if(!val || OFF_TYPES.includes(val.toUpperCase())) return 0;
         let cleaned = val.toString().replace(':', '').split('-')[0];
         if (cleaned.length < 3) return 0;
         let h = parseInt(cleaned.substring(0, cleaned.length - 2)), m = parseInt(cleaned.substring(cleaned.length - 2));
@@ -669,7 +650,11 @@
         const buildRow = (type, item, i) => { 
             const div = document.createElement('div'); div.className = 'sub-edit-row'; 
             div.innerHTML = `<span class="sub-edit-label">${type.toUpperCase()}</span><input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="start" value="${item.startRaw}" style="width: 50px;"><span>to</span><input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="end" value="${item.endRaw}" style="width: 50px;">`; 
-            div.querySelectorAll('input').forEach(inp => inp.addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); }));
+            
+            // Add keypress listener to each generated sub-item row
+            div.querySelectorAll('input').forEach(inp => inp.addEventListener('keypress', (e) => { 
+                if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); 
+            }));
             return div; 
         };
         if(s.leave) s.leave.forEach((lv, i) => container.appendChild(buildRow('leave', lv, i)));
@@ -692,7 +677,7 @@
         let finalDisplayOrder = []; let handledIndices = new Set();
         sortedShifts.forEach((s) => {
             const originalIdx = shifts.indexOf(s);
-            if (handledIndices.has(originalIdx)) return;
+            if (handledIndices.has(originalIdx) || s.duration <= 0) return;
             if (s.trainer && traineeReg.includes(s.initials) && !s.asStaff && shifts.some(sh => sh.initials === s.trainer)) return;
             finalDisplayOrder.push(s); handledIndices.add(originalIdx);
             sortedShifts.forEach((traineeCand) => {
@@ -700,7 +685,7 @@
                 if (!handledIndices.has(tIdx) && traineeCand.trainer === s.initials && traineeReg.includes(traineeCand.initials) && !traineeCand.asStaff) { finalDisplayOrder.push(traineeCand); handledIndices.add(tIdx); }
             });
         });
-        sortedShifts.forEach((s) => { if (!handledIndices.has(shifts.indexOf(s))) finalDisplayOrder.push(s); });
+        sortedShifts.forEach((s) => { if (!handledIndices.has(shifts.indexOf(s)) && s.duration > 0) finalDisplayOrder.push(s); });
 
         let allPending = [];
         shifts.forEach((s, sIdx) => { if (s.pendingImport) { s.pendingImport.forEach((pi, piIdx) => { allPending.push({ ...pi, sIdx, piIdx }); }); } });
@@ -716,7 +701,9 @@
             if (isFullShiftLeave) return;
             (s.xte || []).forEach(xt => { let xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); overallStartOff = Math.min(overallStartOff, xtS); overallEndOff = Math.max(overallEndOff, xtE); });
             const isTrainee = traineeReg.includes(s.initials) && !s.asStaff;
-            const isGreyedOut = showNowLine && (currentRelHour !== null && currentRelHour >= overallEndOff);
+            const now = new Date(); const todayStr = now.toISOString().split('T')[0];
+            const isGreyedOut = (targetDateVal === todayStr) && showNowLine && (currentRelHour !== null && currentRelHour >= overallEndOff);
+
             if (s.status !== 'inactive' && !isTrainee) { for(let h=0; h<TOTAL_HOURS; h++) { const isLeave = (s.leave || []).some(lv => Math.max(parseTimeInput(lv.startRaw), h) < Math.min(parseTimeInput(lv.endRaw), h+1)); if(Math.max(overallStartOff, h) < Math.min(overallEndOff, h+1) && !isLeave && !((h+START_HOUR)%24 < 20 && h >= (overallEndOff - 1))) counts[h]++; } }
             let visualDuration = Math.min(overallEndOff, TOTAL_HOURS) - overallStartOff;
             if (visualDuration > 0) {
@@ -745,6 +732,7 @@
         });
 
         shifts.forEach((s, originalIdx) => {
+            if (s.isGhost && (!s.pendingImport || s.pendingImport.length === 0)) return;
             const oS = parseTimeInput(s.startRaw), oE = oS + s.duration, isTInReg = traineeReg.includes(s.initials);
             let tags = (s.leave || []).map((lv, i) => `<div class="registry-leave-tag">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-del-leave" onclick="deleteLeave(${originalIdx}, ${i})">×</button></div>`).join('') + (s.xte || []).map((xt, i) => `<div class="registry-leave-tag tag-xte">XTE ${xt.startRaw}-${xt.endRaw} <button class="btn-del-leave" onclick="deleteXte(${originalIdx}, ${i})">×</button></div>`).join('') + (s.pendingLeave || []).map((lv, i) => `<div class="registry-leave-tag tag-pending">${lv.type} ${lv.startRaw}-${lv.endRaw} <button class="btn-accept-leave" onclick="acceptPendingLeave(${originalIdx}, ${i})">✓</button><button class="btn-del-leave" onclick="rejectPendingLeave(${originalIdx}, ${i})">×</button></div>`).join('');
             let trC = ''; staffingCheck = '';
@@ -757,7 +745,8 @@
             }
             const itemClass = isTInReg && !s.asStaff ? 'list-item is-trainee-item' : 'list-item';
             const traineeBarStyle = isTInReg ? 'border-left: 4px solid var(--trainee);' : '';
-            list.innerHTML += `<div class="${itemClass}" style="${traineeBarStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${oS + s.duration - oS}hr)</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
+            const shiftInfo = s.isGhost ? 'NOT ON SHIFT' : `${formatTimeFromOffset(oS)}-${formatTimeFromOffset(oE)} (${s.duration}hr)`;
+            list.innerHTML += `<div class="${itemClass}" style="${traineeBarStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><b>${s.initials}</b><span class="registry-shift-info">${shiftInfo}</span>${trC}</div><div style="display: flex; flex-direction: column; align-items: flex-end; width: 85px;"><select class="status-select" onchange="toggleStatus(${originalIdx}, this.value)"><option value="active" ${s.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${s.status === 'inactive' ? 'selected' : ''}>Inactive</option></select>${staffingCheck}</div></div><div class="registry-leave-container">${tags}</div><div class="item-actions"><button class="btn-leave" onclick="openActionModal('leave', ${originalIdx})">+ Leave</button><button class="btn-xte" onclick="openActionModal('xte', ${originalIdx})">+ XTE</button><button class="btn-edit" onclick="openEditModal(${originalIdx})">Edit</button><button class="btn-del" onclick="deleteShift(${originalIdx})">Del</button></div></div>`;
         });
 
         allPending.forEach((pi) => {
@@ -766,7 +755,7 @@
             const mainAction = pi.processed ? `<button class="btn-revert-leave" title="Undo" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'revert')">⟲</button>` : `<button class="btn-accept-leave" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'approve')">✓</button>`;
             let timeDisplay = `${pi.from} to ${pi.to}`;
             const targetShift = shifts[pi.sIdx];
-            if (targetShift) {
+            if (targetShift && !targetShift.isGhost) {
                 const sStartOff = parseTimeInput(targetShift.startRaw);
                 const sEndOff = sStartOff + targetShift.duration;
                 const pStartOff = parseTimeInput(pi.from);
