@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Graph</title>
+    <title>Shift Graph v13.6</title>
     <style>
         :root { 
             --primary: #2c3e50; 
@@ -280,7 +280,8 @@
     let historyStack = [];
     let redoStack = [];
     let isDraft = false;
-    const OFF_TYPES = ["X", "HOLIDAY", "ANNUAL", "SICK", "XTU", "ADMIN", "FURLOUGH", "FSL"];
+    const OFF_TYPES = ["X", "HOLIDAY", "ANNUAL", "SICK", "XTU", "ADMIN", "FURLOUGH", "FSL", "HL", "AL", "SL"];
+    const LEAVE_TYPES = ["ANNUAL", "SICK", "HOLIDAY", "ADMIN", "FURLOUGH", "XTU", "HL", "AL", "SL"];
 
     window.onload = function() { 
         const now = new Date();
@@ -292,7 +293,6 @@
         const nowLinePref = localStorage.getItem('show_now_line');
         document.getElementById('showNowLineCheckbox').checked = nowLinePref === null ? true : nowLinePref === 'true';
         
-        // Modal Input Enter Key Handlers
         document.getElementById('actionRangeInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnActionConfirm').click(); });
         document.getElementById('editInitInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
         document.getElementById('editStartInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); });
@@ -414,29 +414,41 @@
         render();
     }
 
-    function getCurrentRelativeHour() {
+    function getNowData() {
         const now = new Date();
-        const targetDateInput = document.getElementById('targetDate').value;
-        const todayStr = now.toISOString().split('T')[0];
-        if (targetDateInput !== todayStr) return null;
-        const hrs = now.getHours();
+        const hours = now.getHours();
         const mins = now.getMinutes();
-        let relHours = hrs + (mins / 60);
-        return relHours - START_HOUR;
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        
+        let dashboardDateStr = `${year}-${month}-${day}`;
+        let relHour = hours + (mins / 60);
+
+        if (hours >= 0 && hours < 3) {
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            dashboardDateStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+            relHour += 24;
+        }
+
+        const offset = relHour - START_HOUR;
+        return { dashboardDateStr, offset, isSuppressed: (hours >= 3 && hours < 5) };
     }
 
     function updateNowLine() {
         const line = document.getElementById('nowLine');
-        const showLine = document.getElementById('showNowLineCheckbox').checked;
-        const targetDateInput = document.getElementById('targetDate').value;
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
-        const isToday = (targetDateInput === todayStr);
-        const offset = getCurrentRelativeHour();
-        if (showLine && isToday && offset !== null && offset >= 0 && offset <= TOTAL_HOURS) {
+        const showLinePref = document.getElementById('showNowLineCheckbox').checked;
+        const targetDashboardDate = document.getElementById('targetDate').value;
+        
+        const nowInfo = getNowData();
+
+        if (showLinePref && !nowInfo.isSuppressed && targetDashboardDate === nowInfo.dashboardDateStr && nowInfo.offset >= 0 && nowInfo.offset <= TOTAL_HOURS) {
             line.style.display = 'block';
-            line.style.left = (offset / TOTAL_HOURS * 100) + '%';
-        } else { line.style.display = 'none'; }
+            line.style.left = (nowInfo.offset / TOTAL_HOURS * 100) + '%';
+        } else { 
+            line.style.display = 'none'; 
+        }
     }
     setInterval(() => { updateNowLine(); render(); }, 60000);
 
@@ -444,9 +456,9 @@
         if (document.getElementById('modalDraftMode').checked) enableDraftMode();
         saveHistory();
         const rawText = document.getElementById('bulkPasteInput').value;
-        const lines = rawText.split('\n');
         
         if (type === 'schedule') {
+            const lines = rawText.split('\n');
             const isChecked = document.getElementById('modalDaySup').checked;
             document.getElementById('daySupCheckbox').checked = isChecked;
             localStorage.setItem(`day_sup_checked_${document.getElementById('targetDate').value}`, isChecked);
@@ -465,15 +477,22 @@
                     if (currentTime) incomingParsedShifts.push({ initials: match[1].replace('$', ''), startRaw: currentTime, duration: currentDuration });
                 }
             });
+
             incomingParsedShifts.forEach(incoming => {
                 const iStart = parseTimeInput(incoming.startRaw);
                 let matched = false;
                 for (let existing of shifts) {
-                    if (existing.initials === incoming.initials && existing.startRaw === incoming.startRaw && existing.duration === incoming.duration) { matched = true; break; }
+                    if (existing.initials === incoming.initials && existing.startRaw === incoming.startRaw && existing.duration === incoming.duration) {
+                        matched = true; break;
+                    }
                     if (existing.initials === incoming.initials) {
                         const eStart = parseTimeInput(existing.startRaw);
                         const gapHours = Math.abs(iStart - (eStart + existing.duration));
-                        if (gapHours < 10) { existing.startRaw = incoming.startRaw; existing.duration = incoming.duration; matched = true; break; }
+                        if (gapHours < 10) {
+                            existing.startRaw = incoming.startRaw;
+                            existing.duration = incoming.duration;
+                            matched = true; break;
+                        }
                     }
                 }
                 if (!matched) shifts.push({ initials: incoming.initials, startRaw: incoming.startRaw, duration: incoming.duration, leave: [], pendingLeave: [], xte: [], status: 'active', asStaff: false, trainer: '', pendingImport: [] });
@@ -482,37 +501,56 @@
             let initialsInPaste = new Set();
             let newImportItems = [];
             let pasteCounter = 0;
-            lines.forEach(line => {
-                const cleanedLine = line.split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0];
-                const parts = cleanedLine.match(/(Annual|Sick|Shift Chg|XTU|Holiday|Admin|Furlough|FSL)|(Shift|Approved!|Pending|Denied|X)|(\d{1,2}:\d{2})|(\d{4}(-\d+)?)|([A-Z]{2,3})/gi);
-                if (!parts || parts.length < 2) return;
 
-                const cpc = parts.find(p => /^[A-Z]{2,3}$/.test(p.toUpperCase()))?.toUpperCase() || "";
-                initialsInPaste.add(cpc);
-                const typeRaw = (parts.find(p => ["ANNUAL", "SICK", "SHIFT CHG", "XTU", "HOLIDAY", "ADMIN", "FURLOUGH", "FSL"].includes(p.toUpperCase())) || "").toUpperCase();
-                const statusStrRaw = (parts.find(p => ["APPROVED!", "PENDING", "DENIED"].includes(p.toUpperCase())) || "").toUpperCase();
+            // v13.6 ROBUST ROW PARSER
+            const typeKeywords = ["Annual", "Sick", "Shift Chg", "XTU", "Holiday", "Admin", "Furlough", "FSL", "HL", "AL", "SL"];
+            const statusKeywords = ["Approved!", "Pending", "Denied"];
+            const timePatterns = /Shift|X|HL|([A-Z]{1,2})?\d{2,4}(-\d+)?|(\d{1,2}:\d{2})/gi;
 
-                if (typeRaw === "SHIFT CHG" && statusStrRaw === "APPROVED!") return; 
+            // Anchor logic: Find every instance of CPC (2 chars) followed immediately by a Type
+            const masterRowFinder = new RegExp(`([A-Z]{2})(${typeKeywords.join('|')})`, 'gi');
+            let rowMatch;
+            let rowStarts = [];
+            while ((rowMatch = masterRowFinder.exec(rawText)) !== null) {
+                rowStarts.push({ index: rowMatch.index, cpc: rowMatch[1].toUpperCase(), type: rowMatch[2] });
+            }
 
-                const timeParts = parts.filter(p => /^(\d{1,2}:\d{2})$/.test(p) || /^(\d{4}(-\d+)?)$/.test(p));
-                let fromRaw = parts.find(p => OFF_TYPES.includes(p.toUpperCase()) || p.toLowerCase() === "shift") || timeParts[0] || "";
-                let toRaw = OFF_TYPES.includes(fromRaw.toUpperCase()) ? (timeParts[0] || "") : (timeParts[1] || timeParts[0] || "");
+            for (let i = 0; i < rowStarts.length; i++) {
+                let current = rowStarts[i];
+                let nextIndex = rowStarts[i+1] ? rowStarts[i+1].index : rawText.length;
+                let segment = rawText.substring(current.index, nextIndex);
 
+                const statusMatch = segment.match(new RegExp(statusKeywords.join('|'), 'i'));
+                if (!statusMatch) continue;
+
+                let statusStrRaw = statusMatch[0].toUpperCase();
+                let subSegment = segment.substring(0, segment.indexOf(statusMatch[0]));
+
+                let values = subSegment.match(timePatterns) || [];
+                let fromRaw = values.find(v => v.toUpperCase() !== current.type.toUpperCase() && v.length > 0) || "";
+                let toRaw = (fromRaw.toLowerCase() === "shift") ? "" : (values.filter(v => v !== fromRaw && v.toUpperCase() !== current.type.toUpperCase())[0] || "");
+
+                initialsInPaste.add(current.cpc);
                 pasteCounter++;
-                let type = typeRaw.replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
-                newImportItems.push({ cpc, type, from: fromRaw, to: toRaw, status: statusStrRaw, pasteOrder: pasteCounter });
-            });
+                let finalType = current.type.toUpperCase().replace("ANNUAL","AL").replace("SICK","SL").replace("HOLIDAY","HL").replace("ADMIN","Admin");
+                newImportItems.push({ cpc: current.cpc, type: finalType, from: fromRaw, to: toRaw, status: statusStrRaw, pasteOrder: pasteCounter });
+            }
 
             initialsInPaste.forEach(initial => {
                 let existingShift = shifts.find(s => s.initials === initial);
-                if (existingShift) existingShift.pendingImport = [];
-                else shifts.push({ initials: initial, startRaw: '0000', duration: 0, leave: [], pendingLeave: [], xte: [], status: 'inactive', asStaff: false, trainer: '', pendingImport: [], isGhost: true });
+                if (existingShift) { existingShift.pendingImport = []; }
+                else { shifts.push({ initials: initial, startRaw: '0000', duration: 0, leave: [], pendingLeave: [], xte: [], status: 'inactive', asStaff: false, trainer: '', pendingImport: [], isGhost: true }); }
             });
 
             newImportItems.forEach(ni => {
                 let targetShift = shifts.find(s => s.initials === ni.cpc);
-                if (ni.status.includes("PENDING") || ni.status.includes("DENIED")) targetShift.pendingImport.push({ ...ni, processed: false });
-                else if (ni.status.includes("APPROVED")) {
+                if (ni.status.includes("PENDING") || ni.status.includes("DENIED")) {
+                    targetShift.pendingImport.push({ ...ni, processed: false });
+                } else if (ni.status.includes("APPROVED")) {
+                    if (LEAVE_TYPES.includes(ni.type.toUpperCase()) && ni.from.toLowerCase() === "shift") {
+                        shifts = shifts.filter(s => s !== targetShift);
+                        return;
+                    }
                     if (OFF_TYPES.includes(ni.from.toUpperCase())) return; 
                     if (ni.from.toLowerCase() === "shift" && !targetShift.isGhost) {
                         const sStart = parseTimeInput(targetShift.startRaw);
@@ -534,6 +572,12 @@
             row.processed = true; 
             row.origStart = s.startRaw;
             row.origDur = s.duration;
+
+            if (LEAVE_TYPES.includes(row.type.toUpperCase()) && row.from.toLowerCase() === "shift") {
+                shifts.splice(shiftIdx, 1);
+                finishUpdate();
+                return;
+            }
 
             if (row.type === "SHIFT CHG") {
                 let timeStr = row.to.replace(':','');
@@ -591,7 +635,7 @@
     }
     
     function parseTimeInput(val) {
-        if(!val || OFF_TYPES.includes(val.toUpperCase())) return 0;
+        if(!val || OFF_TYPES.includes(val.toUpperCase()) || val.toLowerCase() === 'shift') return 0;
         let cleaned = val.toString().replace(':', '').split('-')[0];
         if (cleaned.length < 3) return 0;
         let h = parseInt(cleaned.substring(0, cleaned.length - 2)), m = parseInt(cleaned.substring(cleaned.length - 2));
@@ -650,11 +694,7 @@
         const buildRow = (type, item, i) => { 
             const div = document.createElement('div'); div.className = 'sub-edit-row'; 
             div.innerHTML = `<span class="sub-edit-label">${type.toUpperCase()}</span><input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="start" value="${item.startRaw}" style="width: 50px;"><span>to</span><input type="text" class="sub-edit-input" data-type="${type}" data-index="${i}" data-field="end" value="${item.endRaw}" style="width: 50px;">`; 
-            
-            // Add keypress listener to each generated sub-item row
-            div.querySelectorAll('input').forEach(inp => inp.addEventListener('keypress', (e) => { 
-                if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); 
-            }));
+            div.querySelectorAll('input').forEach(inp => inp.addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('btnEditConfirm').click(); }));
             return div; 
         };
         if(s.leave) s.leave.forEach((lv, i) => container.appendChild(buildRow('leave', lv, i)));
@@ -667,11 +707,12 @@
         const chart = document.getElementById('chartArea'), list = document.getElementById('shiftList'), importList = document.getElementById('pendingImportItems');
         chart.innerHTML = ''; list.innerHTML = ''; importList.innerHTML = '';
         const counts = new Array(TOTAL_HOURS).fill(0);
-        const currentRelHour = getCurrentRelativeHour(), traineeReg = (localStorage.getItem('trainee_registry') || "").split(/\s+/).filter(Boolean);
+        const traineeReg = (localStorage.getItem('trainee_registry') || "").split(/\s+/).filter(Boolean);
         const targetDateVal = document.getElementById('targetDate').value;
         const dayOfWeek = targetDateVal ? new Date(targetDateVal + 'T00:00:00').getDay() : null; 
-        const isSunFri = (dayOfWeek !== null && dayOfWeek !== 6), isSat = (dayOfWeek === 6), supChecked = document.getElementById('daySupCheckbox').checked, showNowLine = document.getElementById('showNowLineCheckbox').checked;
-        const originalDataRaw = localStorage.getItem(`staff_data_${targetDateVal}`), originalShifts = originalDataRaw ? JSON.parse(originalDataRaw) : [];
+        const isSunFri = (dayOfWeek !== null && dayOfWeek !== 6), isSat = (dayOfWeek === 6), supChecked = document.getElementById('daySupCheckbox').checked, showNowLinePref = document.getElementById('showNowLineCheckbox').checked;
+
+        const nowInfo = getNowData();
 
         let sortedShifts = [...shifts].sort((a,b) => parseTimeInput(a.startRaw) - parseTimeInput(b.startRaw));
         let finalDisplayOrder = []; let handledIndices = new Set();
@@ -701,8 +742,8 @@
             if (isFullShiftLeave) return;
             (s.xte || []).forEach(xt => { let xtS = parseTimeInput(xt.startRaw), xtE = parseTimeInput(xt.endRaw); overallStartOff = Math.min(overallStartOff, xtS); overallEndOff = Math.max(overallEndOff, xtE); });
             const isTrainee = traineeReg.includes(s.initials) && !s.asStaff;
-            const now = new Date(); const todayStr = now.toISOString().split('T')[0];
-            const isGreyedOut = (targetDateVal === todayStr) && showNowLine && (currentRelHour !== null && currentRelHour >= overallEndOff);
+            
+            const isGreyedOut = showNowLinePref && (targetDateVal === nowInfo.dashboardDateStr) && (nowInfo.offset >= overallEndOff);
 
             if (s.status !== 'inactive' && !isTrainee) { for(let h=0; h<TOTAL_HOURS; h++) { const isLeave = (s.leave || []).some(lv => Math.max(parseTimeInput(lv.startRaw), h) < Math.min(parseTimeInput(lv.endRaw), h+1)); if(Math.max(overallStartOff, h) < Math.min(overallEndOff, h+1) && !isLeave && !((h+START_HOUR)%24 < 20 && h >= (overallEndOff - 1))) counts[h]++; } }
             let visualDuration = Math.min(overallEndOff, TOTAL_HOURS) - overallStartOff;
@@ -753,15 +794,16 @@
             const isDenied = pi.status.toLowerCase().includes('denied');
             const deniedTag = isDenied ? ' <span style="color: #e74c3c; font-weight: bold;">DENIED</span>' : '';
             const mainAction = pi.processed ? `<button class="btn-revert-leave" title="Undo" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'revert')">⟲</button>` : `<button class="btn-accept-leave" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'approve')">✓</button>`;
-            let timeDisplay = `${pi.from} to ${pi.to}`;
-            const targetShift = shifts[pi.sIdx];
-            if (targetShift && !targetShift.isGhost) {
-                const sStartOff = parseTimeInput(targetShift.startRaw);
-                const sEndOff = sStartOff + targetShift.duration;
-                const pStartOff = parseTimeInput(pi.from);
-                const pEndOff = parseTimeInput(pi.to);
-                if (Math.abs(sStartOff - pStartOff) < 0.1 && Math.abs(sEndOff - pEndOff) < 0.1) timeDisplay = "Shift";
+            
+            let timeDisplay = "";
+            if (pi.type === "SHIFT CHG") {
+                timeDisplay = `From ${pi.from} To ${pi.to}`;
+            } else if (pi.from.toLowerCase() === "shift") {
+                timeDisplay = "Shift";
+            } else {
+                timeDisplay = `${pi.from}${pi.to ? ' to ' + pi.to : ''}`;
             }
+            
             importList.innerHTML += `<div class="pending-import-item ${pi.processed ? 'processed' : ''}"><div class="pending-import-data"><b>${pi.cpc}</b>: ${pi.type}${deniedTag}<br>${timeDisplay}</div><div class="pending-import-actions">${mainAction}<button class="btn-del-leave" style="color: red; font-size: 14px;" onclick="handleImportAction(${pi.sIdx}, ${pi.piIdx}, 'reject')">×</button></div></div>`;
         });
         
