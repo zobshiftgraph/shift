@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Graph - Final Closure Fix</title>
+    <title>Shift Graph - Dynamic Sidebar Build</title>
     <style>
         :root {
             --grid-border: #d1d5db;
@@ -15,7 +15,8 @@
             --trainee-bg-light: #f5f3ff;
             --handover-yellow: #fef08a; 
             --alert-light-yellow: #fef9c3; 
-            --danger-red: #fee2e2; 
+            --danger-red: #fee2e2;
+            --success-green: #dcfce7;
             --sidebar-bg: #ffffff;
             --header-bg: #f3f4f6;
             --tag-pending: #ffedd5;
@@ -33,58 +34,72 @@
         input[type="date"], input[type="text"], input[type="number"], select { padding: 5px; border: 1px solid var(--grid-border); border-radius: 6px; font-size: 0.85rem; }
         
         button { padding: 6px 12px; background-color: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        button:disabled { background-color: #cbd5e1 !important; color: #94a3b8 !important; opacity: 0.7; cursor: not-allowed; }
 
         .btn-undo, .btn-redo { background-color: #64748b; }
         .btn-clear { background-color: #ef4444; }
         .btn-manual { background-color: #10b981; }
         .btn-action { font-size: 0.65rem; padding: 4px 8px; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; text-transform: uppercase; }
-        .btn-edit { background-color: #f59e0b; }
+        .btn-edit { background-color: #f59e0b; margin-bottom: 4px; display: block; }
 
         .main-layout { display: flex; flex-grow: 1; gap: 8px; overflow: hidden; min-height: 0; }
         .graph-container { flex-grow: 1; background: white; border: 1px solid var(--grid-border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; position: relative; }
         
         .grid-header { display: flex; flex-direction: column; flex-shrink: 0; z-index: 50; background: white; border-bottom: 1px solid var(--grid-border); }
-        .time-labels { display: grid; grid-template-columns: repeat(24, 1fr); width: 100%; height: 24px; background: var(--header-bg); align-items: center; transform: translateX(calc(-100% / 48)); }
-        .time-labels span { font-size: 0.65rem; font-weight: 600; color: #6b7280; text-align: center; }
+        .time-labels { display: grid; grid-template-columns: repeat(24, 1fr); width: 100%; height: 28px; background: var(--header-bg); align-items: center; transform: translateX(calc(-100% / 48)); }
+        .time-labels span { font-size: 0.85rem; font-weight: 700; color: #374151; text-align: center; }
         
         .coverage-counts { display: grid; grid-template-columns: repeat(24, 1fr); height: 24px; background: #eff6ff; align-items: center; }
         .coverage-counts span { font-size: 0.75rem; font-weight: 900; color: var(--bar-text); text-align: center; height: 100%; display: flex; align-items: center; justify-content: center; border-right: 1px solid rgba(209, 213, 219, 0.3); }
         .count-warning { background-color: var(--alert-light-yellow) !important; color: #92400e !important; } 
-        .count-danger { background-color: var(--danger-red) !important; color: #b91c1c !important; } 
+        .count-danger { background-color: #fecaca !important; color: #b91c1c !important; } 
+        .count-success { background-color: var(--success-green) !important; color: #166534 !important; }
+        
+        .count-up { color: #10b981 !important; font-size: 0.9rem !important; }
+        .count-down { color: #ef4444 !important; font-size: 0.9rem !important; }
 
         .grid-scroll-area { flex-grow: 1; overflow-y: auto; position: relative; min-height: 0; }
-        .schedule-grid { display: flex; flex-direction: column; min-height: 100%; position: relative; background-image: linear-gradient(to right, var(--line-color) 1px, transparent 1px); background-size: calc(100% / 24) 100%; }
+        .schedule-grid { display: flex; flex-direction: column; min-height: 100%; position: relative; background-size: calc(100% / 24) 100%; }
+        .schedule-grid::before { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: linear-gradient(to right, var(--line-color) 1px, transparent 1px); background-size: calc(100% / 24) 100%; pointer-events: none; }
         #now-line { position: absolute; top: 0; bottom: 0; width: 2px; background-color: #ef4444; z-index: 100; pointer-events: none; display: none; }
 
-        .shift-track { display: grid; grid-template-columns: repeat(1440, 1fr); height: 32px; align-items: center; border-bottom: 1px solid #f3f4f6; }
+        .shift-track { display: grid; grid-template-columns: repeat(1440, 1fr); height: 32px; align-items: center; border-bottom: 1px solid #f3f4f6; position: relative; }
         .shift-bar { background-color: var(--bar-color); color: var(--bar-text); height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; z-index: 10; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); overflow: hidden; white-space: nowrap; gap: 6px; position: relative; font-weight: bold; }
         .bar-trainee { background-color: var(--trainee-color) !important; color: var(--trainee-text) !important; }
         .bar-inactive { background-color: var(--inactive-gray) !important; opacity: 0.6; }
 
-        .overlay-segment { position: absolute; top: 0; height: 100%; pointer-events: none; }
-        .trainer-stripes-overlay { background-image: repeating-linear-gradient(45deg, rgba(107, 33, 168, 0.6), rgba(107, 33, 168, 0.6) 10px, transparent 10px, transparent 20px); z-index: 2; }
-        .yellow-bar-overlay { background-color: var(--handover-yellow); z-index: 3; }
-        .xte-segment { background-color: var(--xte-green); color: #1e3a8a; z-index: 4; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; font-weight: 800; border-radius: 2px; }
-        .leave-segment { background-color: var(--leave-gray); color: white; z-index: 5; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; }
-
         .preview-new { border: 2px solid var(--preview-green) !important; box-shadow: 0 0 8px rgba(34, 197, 94, 0.6); z-index: 15 !important; }
         .preview-replaced { background-color: rgba(147, 197, 253, 0.1) !important; border: 2px dashed #2563eb !important; color: #2563eb !important; opacity: 0.5; z-index: 5 !important; }
+
+        .overlay-segment { position: absolute; top: 0; height: 100%; pointer-events: none; }
+        .trainer-stripes-overlay { background-image: repeating-linear-gradient(45deg, rgba(107, 33, 168, 0.3), rgba(107, 33, 168, 0.3) 10px, transparent 10px, transparent 20px); z-index: 2; }
+        .yellow-bar-overlay { background-color: var(--handover-yellow); z-index: 3; }
+        
+        .xte-segment { background-color: #10b981; color: white; z-index: 12; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 0.8; pointer-events: none; }
+        .leave-segment { background-color: #6b7280; color: white; z-index: 13; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 0.8; pointer-events: none; }
+        .segment-label { font-size: 0.45rem; font-weight: 900; }
+        .segment-time { font-size: 0.45rem; font-weight: bold; margin-top: 1px; }
 
         .sidebar { width: 280px; background: var(--sidebar-bg); border: 1px solid var(--grid-border); border-radius: 8px; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
         .sidebar-header { padding: 8px 10px; font-size: 0.85rem; font-weight: 800; background: var(--header-bg); border-bottom: 1px solid var(--grid-border); letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
         .sidebar-content { overflow-y: auto; flex-grow: 1; min-height: 0; }
         
-        .employee-item { display: flex; flex-direction: column; padding: 10px; border-bottom: 1px solid #f1f5f9; background: white; transition: background 0.2s; position: relative; }
+        .employee-item { display: flex; flex-direction: column; padding: 10px; border-bottom: 1px solid #f1f5f9; background: white; position: relative; }
         .employee-item.trainee-row { background-color: var(--trainee-bg-light); border-left: 4px solid var(--trainee-color); }
         .item-main-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
         .employee-info { font-size: 0.75rem; flex-grow: 1; }
-        .status-checks { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; min-width: 65px; }
-        .status-label { font-size: 0.55rem; color: #6b7280; font-weight: 700; display: flex; align-items: center; cursor: pointer; gap: 3px; text-transform: uppercase; }
+        .status-checks { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; min-width: 75px; }
+        .status-label { font-size: 0.55rem; color: #374151; font-weight: 700; display: block; cursor: pointer; text-transform: uppercase; }
 
-        .request-inbox { display: flex; flex-direction: column; height: 210px; min-height: 210px; border-top: 2px solid #2563eb; background: #f8fafc; }
+        .sidebar-detail-tag { font-size: 0.6rem; font-weight: 600; padding: 2px 5px; border-radius: 3px; margin-right: 4px; border: 1px solid #d1d5db; display: inline-flex; align-items: center; margin-top: 4px; }
+        .tag-lv { background-color: #f3f4f6; color: #374151; }
+        .tag-xte { background-color: #ecfdf5; color: #065f46; border-color: #10b981; }
+        .tag-del-x { color: #ef4444; font-weight: 900; margin-left: 5px; cursor: pointer; font-size: 0.75rem; }
+
+        /* REQUEST STYLES */
+        .request-inbox { display: none; flex-direction: column; height: 320px; min-height: 320px; border-top: 2px solid #2563eb; background: #f8fafc; }
         .request-item { display: flex; flex-direction: column; padding: 10px; border-bottom: 1px solid #e2e8f0; background: #fff; margin: 4px; border-radius: 6px; border-left: 3px solid transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .request-item.active-preview { border-color: var(--commit-blue); background: #f0f9ff; border-left: 3px solid var(--commit-blue); }
+        .request-item.active-preview { border-color: var(--commit-blue); background: #f0f9ff; border-left: 3px solid var(--commit-blue); border-width: 2px; }
         .request-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .request-name { font-weight: 800; font-size: 0.85rem; color: #0f172a; }
         .status-pill { font-size: 0.55rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; background: #ffedd5; color: #9a3412; }
@@ -92,17 +107,22 @@
         .time-row { font-size: 0.65rem; display: flex; justify-content: space-between; align-items: center; }
         .time-label { color: #64748b; font-weight: 600; }
         .time-val { font-weight: 700; color: #1e293b; }
-        .request-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 4px; }
+        .request-footer { display: flex; justify-content: space-between; align-items: center; }
         .req-btn-group { display: flex; gap: 4px; }
+        .delete-btn-mini { color: #94a3b8; cursor: pointer; font-size: 1.1rem; line-height: 1; }
+
+        .delete-btn { color: #ef4444; cursor: pointer; font-weight: 900; font-size: 1.2rem; align-self: flex-end; padding: 2px; }
+        .pending-badge { background: #2563eb; color: white; font-size: 0.6rem; padding: 1px 5px; border-radius: 10px; font-weight: 900; }
+        .badge-trainee { font-size: 0.5rem; background: var(--trainee-text); color: white; padding: 1px 3px; border-radius: 4px; vertical-align: middle; margin-left: 3px; font-weight: 800; }
+        .trainee-pairing-col { margin-top: 4px; }
+        .trainee-dropdown { font-size: 0.6rem; padding: 2px; width: 110px; border-radius: 4px; border: 1px solid #cbd5e1; background-color: white; }
 
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; padding: 20px; box-sizing: border-box; }
         .modal-content { background: white; padding: 20px; border-radius: 12px; width: 100%; max-width: 600px; display: flex; flex-direction: column; max-height: 90vh; }
         .modal-tiny { max-width: 350px !important; }
         textarea { flex-grow: 1; width: 100%; min-height: 250px; margin-bottom: 15px; padding: 12px; box-sizing: border-box; font-family: 'Courier New', monospace; font-size: 0.85rem; border: 1px solid var(--grid-border); border-radius: 8px; resize: vertical; }
         .modal-footer { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
-        .cic-tag { font-size: 0.6rem; color: #2563eb; font-weight: 900; margin-left: 4px; }
-        .sidebar-detail-tag { font-size: 0.6rem; font-weight: 600; padding: 1px 4px; border-radius: 3px; margin-right: 3px; border: 1px solid #d1d5db; }
-        .mini-delete { cursor: pointer; margin-left: 6px; font-weight: 900; font-size: 0.8rem; color: #ef4444; }
+        .current-shift-info { font-size: 0.75rem; color: #2563eb; font-weight: 800; margin-bottom: 12px; display: block; background: #eff6ff; padding: 6px 10px; border-radius: 6px; border-left: 3px solid #2563eb; }
     </style>
 </head>
 <body>
@@ -111,10 +131,12 @@
     <div class="controls">
         <div class="controls-left">
             <input type="date" id="date-picker">
-            <button class="btn-undo" onclick="undo()">↶</button>
+            <button class="btn-undo" id="undoBtn" onclick="undo()" title="Undo">↶</button>
+            <button class="btn-redo" id="redoBtn" onclick="redo()" title="Redo">↷</button>
         </div>
         <h2 style="margin:0; flex-grow: 1; text-align: center; font-size: 1.1rem; font-weight: 900; color: #1e293b;">SHIFT GRAPH</h2>
         <div class="controls-right">
+            <button onclick="openModal('trainerListModal')">Trainers</button>
             <button onclick="openModal('traineeModal')">Trainees</button>
             <button class="btn-manual" onclick="openModal('manualModal')">Manual</button>
             <button onclick="openModal('rosterModal')">Add Schedule</button>
@@ -134,9 +156,9 @@
         <div class="sidebar">
             <div class="sidebar-header">DAILY ROSTER</div>
             <div class="sidebar-content" id="roster-list"></div>
-            <div class="request-inbox">
+            <div class="request-inbox" id="request-inbox-container">
                 <div class="sidebar-header" style="background: #2563eb; color: white;">
-                    PENDING <span class="pending-badge" id="pending-count">0</span>
+                    REQUESTS <span class="pending-badge" id="pending-count">0</span>
                 </div>
                 <div class="sidebar-content" id="request-inbox-list"></div>
             </div>
@@ -144,18 +166,34 @@
     </div>
 </div>
 
-<div id="traineeModal" class="modal"><div class="modal-content"><h3 style="margin-top:0">Trainee List</h3><textarea id="traineeInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('traineeModal')">Cancel</button><button onclick="saveTrainees()">Apply</button></div></div></div>
-<div id="rosterModal" class="modal"><div class="modal-content"><h3 style="margin-top:0">Add Schedule</h3><textarea id="rosterInput" placeholder="Paste schedule here..."></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('rosterModal')">Cancel</button><button onclick="processRoster()">Apply</button></div></div></div>
-<div id="requestModal" class="modal"><div class="modal-content"><h3 style="margin-top:0">Add Requests</h3><textarea id="requestInput" placeholder="Paste requests here..."></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('requestModal')">Cancel</button><button onclick="processRequestTable()">Apply</button></div></div></div>
-<div id="manualModal" class="modal"><div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') addManualShift()"><h3 style="margin-top:0">Manual Entry</h3><input type="text" id="manualIni" placeholder="Initials" style="margin-bottom:8px; width:100%"><input type="text" id="manualTime" placeholder="hhmm" style="margin-bottom:8px; width:100%"><input type="number" id="manualDur" value="8" style="width:100%"><div class="modal-footer" style="margin-top:15px;"><button style="background:#6b7280" onclick="closeModal('manualModal')">Cancel</button><button onclick="addManualShift()">Add</button></div></div></div>
-<div id="editModal" class="modal"><div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') updateShift()"><h3 style="margin-top:0">Edit Shift</h3><span id="currentShiftRef"></span><input type="text" id="editIni" placeholder="Ini" style="margin-bottom:8px; width:100%;"><input type="text" id="editTime" placeholder="hhmm" style="margin-bottom:8px; width:100%;"><input type="number" id="editDur" placeholder="Hours" style="margin-bottom:8px; width:100%;"><input type="text" id="editLeave" placeholder="Leave Range" style="margin-bottom:8px; width:100%;"><input type="text" id="editXte" placeholder="XTE Range" style="margin-bottom:8px; width:100%;"><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('editModal')">Cancel</button><button onclick="updateShift()">Update</button></div></div></div>
+<div id="trainerListModal" class="modal"><div class="modal-content"><h3>Trainer List</h3><textarea id="trainerListInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('trainerListModal')">Cancel</button><button onclick="saveTrainersList()">Apply</button></div></div></div>
+<div id="traineeModal" class="modal"><div class="modal-content"><h3>Trainee List</h3><textarea id="traineeInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('traineeModal')">Cancel</button><button onclick="saveTrainees()">Apply</button></div></div></div>
+<div id="rosterModal" class="modal"><div class="modal-content"><h3>Add Schedule</h3><textarea id="rosterInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('rosterModal')">Cancel</button><button onclick="processRoster()">Apply</button></div></div></div>
+<div id="requestModal" class="modal"><div class="modal-content"><h3>Add Requests</h3><textarea id="requestInput" placeholder="Paste requests here..."></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('requestModal')">Cancel</button><button onclick="processRequestTable()">Apply</button></div></div></div>
+<div id="manualModal" class="modal"><div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') addManualShift()"><h3>Manual Entry</h3><input type="text" id="manualIni" placeholder="Initials" style="margin-bottom:8px; width:100%"><input type="text" id="manualTime" placeholder="hhmm" style="margin-bottom:8px; width:100%"><input type="number" id="manualDur" value="8" style="width:100%"><div class="modal-footer" style="margin-top:15px;"><button style="background:#6b7280" onclick="closeModal('manualModal')">Cancel</button><button onclick="addManualShift()">Add</button></div></div></div>
+<div id="editModal" class="modal">
+    <div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') updateShift()">
+        <h3 style="margin-top:0">Edit Shift</h3>
+        <span id="currentShiftRef" class="current-shift-info"></span>
+        <label class="status-label">Initials</label><input type="text" id="editIni" placeholder="Ini" style="margin-bottom:8px; width:100%;">
+        <label class="status-label">Start Time (hhmm)</label><input type="text" id="editTime" placeholder="hhmm" style="margin-bottom:8px; width:100%;">
+        <label class="status-label">Duration (Hours)</label><input type="number" id="editDur" placeholder="Hours" style="margin-bottom:8px; width:100%;">
+        <label class="status-label" style="color:#6b7280">Leave (0000-0000)</label><input type="text" id="editLeave" placeholder="0000-0000" style="margin-bottom:8px; width:100%;">
+        <label class="status-label" style="color:#10b981">XTE (0000-0000)</label><input type="text" id="editXte" placeholder="0000-0000" style="margin-bottom:8px; width:100%;">
+        <div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('editModal')">Cancel</button><button onclick="updateShift()">Update</button></div>
+    </div>
+</div>
 
 <script>
     const STORAGE_KEY = 'rosterData_vFINAL_SCALED';
     const TRAINEE_KEY = 'roster_trainees';
+    const TRAINER_LIST_KEY = 'roster_trainers_list';
+    
     let appData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
     let traineeList = JSON.parse(localStorage.getItem(TRAINEE_KEY)) || [];
-    let undoStack = [], previewIdx = null, activeIdx = null;
+    let trainersList = JSON.parse(localStorage.getItem(TRAINER_LIST_KEY)) || [];
+    let undoStack = [], redoStack = [], activeIdx = null;
+    let previewIndices = new Set();
 
     function initHeader() {
         const timeLabels = document.getElementById('time-labels'), coverageCounts = document.getElementById('coverage-counts');
@@ -169,41 +207,59 @@
         }
     }
 
-    function saveState() { undoStack.push(JSON.stringify(appData)); if (undoStack.length > 50) undoStack.shift(); }
-    function undo() { if (undoStack.length) { appData = JSON.parse(undoStack.pop()); saveToStorage(); } }
+    function saveState() { undoStack.push(JSON.stringify(appData)); redoStack = []; if (undoStack.length > 50) undoStack.shift(); updateHistoryButtons(); }
+    function undo() { if (undoStack.length) { redoStack.push(JSON.stringify(appData)); appData = JSON.parse(undoStack.pop()); saveToStorage(); } }
+    function redo() { if (redoStack.length) { undoStack.push(JSON.stringify(appData)); appData = JSON.parse(redoStack.pop()); saveToStorage(); } }
+    function updateHistoryButtons() { 
+        if(document.getElementById('undoBtn')) document.getElementById('undoBtn').disabled = (undoStack.length === 0); 
+        if(document.getElementById('redoBtn')) document.getElementById('redoBtn').disabled = (redoStack.length === 0); 
+    }
+
     function saveToStorage() { localStorage.setItem(STORAGE_KEY, JSON.stringify(appData)); render(document.getElementById('date-picker').value); }
     function getMinutesFrom0400(hh, mm) { let t = (hh * 60) + mm - 240; return t < 0 ? t + 1440 : t; }
     function formatTime(hh, mm) { return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`; }
-    function togglePreview(idx) { previewIdx = (previewIdx === idx) ? null : idx; render(document.getElementById('date-picker').value); }
+    
+    function togglePreview(idx) { 
+        if (previewIndices.has(idx)) previewIndices.delete(idx); else previewIndices.add(idx);
+        render(document.getElementById('date-picker').value); 
+    }
+
     function toggleInactive(date, idx) { saveState(); appData[date][idx].inactive = !appData[date][idx].inactive; saveToStorage(); }
     function toggleStaffing(date, idx) { saveState(); appData[date][idx].isStaffing = !appData[date][idx].isStaffing; saveToStorage(); }
     function setTrainer(date, tIdx, trainer) { saveState(); appData[date][tIdx].trainer = trainer || null; saveToStorage(); }
+    function removeSegment(date, idx, type) { saveState(); if (type === 'LV') delete appData[date][idx].leave; if (type === 'XTE') delete appData[date][idx].xte; saveToStorage(); }
+
     function saveTrainees() { traineeList = document.getElementById('traineeInput').value.split('\n').map(s => s.trim().toUpperCase()).filter(s => s !== ""); localStorage.setItem(TRAINEE_KEY, JSON.stringify(traineeList)); render(document.getElementById('date-picker').value); closeModal('traineeModal'); }
+    function saveTrainersList() { trainersList = document.getElementById('trainerListInput').value.split('\n').map(s => s.trim().toUpperCase()).filter(s => s !== ""); localStorage.setItem(TRAINER_LIST_KEY, JSON.stringify(trainersList)); render(document.getElementById('date-picker').value); closeModal('trainerListModal'); }
 
     function openModal(id, idx = null) {
-        const modal = document.getElementById(id);
-        if(!modal) return;
-        modal.style.display = 'flex'; 
-        activeIdx = idx; 
+        const modal = document.getElementById(id); if(!modal) return; modal.style.display = 'flex'; activeIdx = idx;
         const date = document.getElementById('date-picker').value;
-        if (idx !== null && id === 'editModal') {
+        if (id === 'editModal' && idx !== null) {
             const item = appData[date][idx];
+            document.getElementById('currentShiftRef').innerText = `Shift: ${item.name} | ${item.label}`;
             document.getElementById('editIni').value = item.name;
             const match = item.label.match(/^(\d{2}):(\d{2})/);
             document.getElementById('editTime').value = match ? match[1] + match[2] : "";
             document.getElementById('editDur').value = item.durHours;
             document.getElementById('editLeave').value = item.leave ? item.leave.label : "";
             document.getElementById('editXte').value = item.xte ? item.xte.label : "";
+            setTimeout(() => document.getElementById('editLeave').focus(), 10);
+        } else if (id === 'manualModal') {
+            setTimeout(() => document.getElementById('manualIni').focus(), 10);
+        } else if (id === 'rosterModal') {
+            setTimeout(() => document.getElementById('rosterInput').focus(), 10);
+        } else if (id === 'requestModal') {
+            setTimeout(() => document.getElementById('requestInput').focus(), 10);
+        } else if (id === 'trainerListModal') {
+            document.getElementById('trainerListInput').value = trainersList.join('\n');
+            setTimeout(() => document.getElementById('trainerListInput').focus(), 10);
+        } else if (id === 'traineeModal') {
+            document.getElementById('traineeInput').value = traineeList.join('\n');
+            setTimeout(() => document.getElementById('traineeInput').focus(), 10);
         }
-        if (id === 'traineeModal') document.getElementById('traineeInput').value = traineeList.join('\n');
-        const target = modal.querySelector('textarea, input:not([type="date"])');
-        if (target) setTimeout(() => target.focus(), 10);
     }
-
-    function closeModal(id) { 
-        const modal = document.getElementById(id);
-        if(modal) modal.style.display = 'none'; 
-    }
+    function closeModal(id) { const m = document.getElementById(id); if(m) m.style.display = 'none'; }
 
     function updateShift() {
         const date = document.getElementById('date-picker').value, item = appData[date][activeIdx];
@@ -211,10 +267,20 @@
         if(!ini || !tm) return;
         saveState(); item.name = ini; item.durHours = d; item.duration = d * 60;
         item.start = getMinutesFrom0400(parseInt(tm[1]), parseInt(tm[2]));
+        const shiftEnd = item.start + item.duration;
         item.label = `${formatTime(parseInt(tm[1]), parseInt(tm[2]))} - ${formatTime((parseInt(tm[1])+d)%24, parseInt(tm[2]))}`;
-        const lvRaw = document.getElementById('editLeave').value.trim(), lvMatch = lvRaw.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
-        if (lvMatch) item.leave = { start: getMinutesFrom0400(parseInt(lvMatch[1]), parseInt(lvMatch[2])), end: getMinutesFrom0400(parseInt(lvMatch[3]), parseInt(lvMatch[4])), label: lvRaw };
-        else if (lvRaw === "") delete item.leave;
+        
+        const lvRaw = document.getElementById('editLeave').value.trim(), lvMatch = lvRaw.match(/^(\d{2})(\d{2})(?:-(\d{2})(\d{2}))?$/);
+        if (lvMatch) {
+            let lS = getMinutesFrom0400(parseInt(lvMatch[1]), parseInt(lvMatch[2]));
+            let lE = lvMatch[3] ? getMinutesFrom0400(parseInt(lvMatch[3]), parseInt(lvMatch[4])) : shiftEnd;
+            if (shiftEnd - lE <= 30 && shiftEnd - lE >= 0) {
+                lE = shiftEnd;
+                let finalH = (Math.floor(lE / 60) + 4) % 24, finalM = lE % 60;
+                item.leave = { start: lS, end: lE, label: `${lvMatch[1]}${lvMatch[2]}-${finalH.toString().padStart(2, '0')}${finalM.toString().padStart(2, '0')}` };
+            } else { item.leave = { start: lS, end: lE, label: lvRaw }; }
+        } else if (lvRaw === "") delete item.leave;
+
         const xteRaw = document.getElementById('editXte').value.trim(), xteMatch = xteRaw.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
         if (xteMatch) item.xte = { start: getMinutesFrom0400(parseInt(xteMatch[1]), parseInt(xteMatch[2])), end: getMinutesFrom0400(parseInt(xteMatch[3]), parseInt(xteMatch[4])), label: xteRaw };
         else if (xteRaw === "") delete item.xte;
@@ -224,20 +290,27 @@
     function processRoster() {
         const raw = document.getElementById('rosterInput').value, date = document.getElementById('date-picker').value;
         if (!date || !raw) { closeModal('rosterModal'); return; }
-        saveState(); 
-        if (appData[date]) appData[date] = appData[date].filter(item => item.status !== "Approved!"); else appData[date] = [];
+        saveState(); if (!appData[date]) appData[date] = [];
         let curH = 0, curM = 0, curD = 8;
         raw.split('\n').forEach(line => {
             const tmM = line.match(/^(\d{2})(\d{2})(?:-(\d+))?/);
             if (tmM) { curH = parseInt(tmM[1]); curM = parseInt(tmM[2]); curD = tmM[3] ? parseInt(tmM[3]) : 8; }
             else if (/[A-Z]{2,}/.test(line)) {
                 line.split(/\s+/).forEach(n => { 
-                    let trimmed = n.trim();
-                    if (trimmed.length >= 2) {
-                        let initials = trimmed, isCIC = false;
-                        const cicMatch = trimmed.match(/^\(([A-Z]{2,4})\)$/i);
-                        if (cicMatch) { initials = cicMatch[1]; isCIC = true; } else if (trimmed.length === 4) { initials = trimmed.substring(2); }
-                        appData[date].push({ name: initials.toUpperCase(), start: getMinutesFrom0400(curH, curM), duration: curD * 60, durHours: curD, label: `${formatTime(curH, curM)} - ${formatTime((curH+curD)%24, curM)}`, status: 'Approved!', isCIC: isCIC });
+                    let tr = n.trim(); if (tr.length >= 2) {
+                        let initials = tr, isCIC = false, cicMatch = tr.match(/^\(([A-Z]{2,4})\)$/i);
+                        if (cicMatch) { initials = cicMatch[1]; isCIC = true; } else if (tr.length === 4) { initials = tr.substring(2); }
+                        const finalIni = initials.toUpperCase(), newStart = getMinutesFrom0400(curH, curM), newDur = curD * 60;
+                        const newShiftObj = { name: finalIni, start: newStart, duration: newDur, durHours: curD, label: `${formatTime(curH, curM)} - ${formatTime((curH+curD)%24, curM)}`, status: 'Approved!', isCIC: isCIC };
+                        const existingShifts = appData[date].filter(item => item.name === finalIni && item.status === 'Approved!');
+                        if (existingShifts.length > 0) {
+                            existingShifts.forEach(existing => {
+                                let endOfExisting = existing.start + existing.duration;
+                                let gap = newStart - endOfExisting; if (gap < 0) gap += 1440;
+                                if (gap < 600) { if (!(existing.start === newStart && existing.duration === newDur)) { const idx = appData[date].indexOf(existing); appData[date].splice(idx, 1); } }
+                            });
+                            appData[date].push(newShiftObj);
+                        } else { appData[date].push(newShiftObj); }
                     }
                 });
             }
@@ -249,15 +322,12 @@
         const raw = document.getElementById('requestInput').value, date = document.getElementById('date-picker').value;
         if (!date || !raw) { closeModal('requestModal'); return; }
         saveState(); if (!appData[date]) appData[date] = [];
-        const rosteredNames = appData[date].filter(s => s.status === "Approved!").map(s => s.name);
-        const exceptions = ["x", "a", "sl", "hl", "xtu"];
         raw.split('\n').forEach(line => {
             const tokens = line.trim().split(/\t|\s{2,}/);
             if (tokens.length >= 6) {
                 const statusStr = tokens[5], isApproved = statusStr === "Approved!", isDenied = statusStr === "Denied", isPending = statusStr.toLowerCase().includes("pending") || (!isApproved && !isDenied && tokens.length > 6);
                 if (isApproved || isDenied || isPending) {
                     let initials = tokens[0].length === 4 ? tokens[0].substring(2) : tokens[0];
-                    if (!rosteredNames.includes(initials) && !exceptions.some(ex => tokens[2].toLowerCase().includes(ex))) return;
                     let toMatch = tokens[3].match(/(\d{2})(\d{2})(?:-(\d+))?/);
                     let isRDO = tokens[3].toLowerCase() === "x";
                     if (initials && (toMatch || isRDO)) {
@@ -265,8 +335,7 @@
                         let label = isRDO ? "RDO (Day Off)" : `${formatTime(hh, mm)} - ${formatTime((hh + dur) % 24, mm)}`;
                         if (isApproved) { appData[date] = appData[date].filter(s => !(s.name === initials && s.status === "Approved!")); appData[date].push({ name: initials, start: getMinutesFrom0400(hh, mm), duration: dur * 60, durHours: dur, label: label, status: "Approved!", isRDO: isRDO }); }
                         else if (!appData[date].some(e => e.name === initials && e.label === label && e.status === (isDenied ? "Denied" : "Pending"))) {
-                            appData[date].push({ name: initials, start: getMinutesFrom0400(hh, mm), duration: dur * 60, durHours: dur, label: label, status: (isDenied ? "Denied" : "Pending"), from: tokens[2], shortTo: isRDO ? "X" : tokens[3], isRDO: isRDO });
-                        }
+                            appData[date].push({ name: initials, start: getMinutesFrom0400(hh, mm), duration: dur * 60, durHours: dur, label: label, status: (isDenied ? "Denied" : "Pending"), from: tokens[2], shortTo: isRDO ? "X" : tokens[3], isRDO: isRDO }); }
                     }
                 }
             }
@@ -274,54 +343,84 @@
         document.getElementById('requestInput').value = ''; saveToStorage(); closeModal('requestModal');
     }
 
-    function deleteItem(d, i) { saveState(); appData[d].splice(i, 1); if(previewIdx === i) previewIdx = null; saveToStorage(); }
-    function commitRequest(idx) { saveState(); const date = document.getElementById('date-picker').value, req = appData[date][idx]; appData[date] = appData[date].filter(s => !(s.name === req.name && s.status === "Approved!")); req.status = "Approved!"; if (previewIdx === idx) previewIdx = null; saveToStorage(); }
-    function addManualShift() { const date = document.getElementById('date-picker').value, ini = document.getElementById('manualIni').value.trim().toUpperCase(), tm = document.getElementById('manualTime').value.trim().match(/^(\d{2})(\d{2})$/), d = parseInt(document.getElementById('manualDur').value) || 8; if(!date || !ini || !tm) return; saveState(); if (!appData[date]) appData[date] = []; appData[date].push({ name: ini, start: getMinutesFrom0400(parseInt(tm[1]), parseInt(tm[2])), duration: d * 60, durHours: d, label: `${formatTime(parseInt(tm[1]), parseInt(tm[2]))} - ${formatTime((parseInt(tm[1])+d)%24, parseInt(tm[2]))}`, status: 'Approved!' }); saveToStorage(); closeModal('manualModal'); }
-    function clearAllShifts() { if(confirm("Clear all data for this day?")) { saveState(); appData[document.getElementById('date-picker').value]=[]; saveToStorage(); } }
+    function deleteItem(d, i) { saveState(); appData[d].splice(i, 1); if(previewIndices.has(i)) previewIndices.delete(i); saveToStorage(); }
+    function commitRequest(idx) { saveState(); const date = document.getElementById('date-picker').value, req = appData[date][idx]; appData[date] = appData[date].filter(s => !(s.name === req.name && s.status === "Approved!")); req.status = "Approved!"; if (previewIndices.has(idx)) previewIndices.delete(idx); saveToStorage(); }
+    function addManualShift() { const date = document.getElementById('date-picker').value, ini = document.getElementById('manualIni').value.trim().toUpperCase(), tm = document.getElementById('manualTime').value.trim().match(/^(\d{2})(\d{2})$/), d = parseInt(document.getElementById('manualDur').value) || 8; if(!date || !ini || !tm) return; saveState(); if (!appData[date]) appData[date] = []; appData[date].push({ name: ini, start: getMinutesFrom0400(parseInt(tm[1]), parseInt(tm[2])), duration: d * 60, durHours: d, label: `${formatTime(parseInt(tm[1]), parseInt(tm[2]))} - ${formatTime((parseInt(tm[1])+d)%24, parseInt(tm[2]))}`, status: 'Approved!' }); saveToStorage(); document.getElementById('manualIni').value = ""; document.getElementById('manualTime').value = ""; closeModal('manualModal'); }
+    function clearAllShifts() { if(confirm("Clear data?")) { saveState(); appData[document.getElementById('date-picker').value]=[]; previewIndices.clear(); saveToStorage(); } }
 
     function render(date) {
         const rosterBox = document.getElementById('roster-list'), inboxList = document.getElementById('request-inbox-list'), gridBody = document.getElementById('schedule-body');
+        const inboxContainer = document.getElementById('request-inbox-container');
         rosterBox.innerHTML = ""; inboxList.innerHTML = ""; gridBody.innerHTML = "";
-        const counts = Array(24).fill(0);
+        
+        const counts = Array(24).fill(0), originalCounts = Array(24).fill(0); 
         let rawItems = (appData[date] || []).map((s, idx) => ({ ...s, originalIdx: idx }));
         let approvedItems = rawItems.filter(s => s.status === "Approved!" && !s.isRDO);
-        let pendingItems = rawItems.filter(s => s.status !== "Approved!");
-        document.getElementById('pending-count').innerText = pendingItems.length;
+        let pendingRequests = rawItems.filter(s => s.status !== "Approved!");
 
+        // DYNAMICALLY SHOW/HIDE REQUEST LIST
+        if (pendingRequests.length > 0) {
+            inboxContainer.style.display = 'flex';
+            document.getElementById('pending-count').innerText = pendingRequests.length;
+        } else {
+            inboxContainer.style.display = 'none';
+        }
+
+        approvedItems.forEach(s => {
+            if (!s.inactive && (!traineeList.includes(s.name) || s.isStaffing)) {
+                for (let i = 0; i < 24; i++) {
+                    const hourMin = i * 60, hourMax = hourMin + 60, realH = (i + 4) % 24;
+                    let wS = Math.max(s.start, hourMin), wE = Math.min(s.start + s.duration, hourMax), mins = Math.max(0, wE - wS);
+                    if (s.leave) mins -= Math.max(0, Math.min(s.leave.end, hourMax) - Math.max(s.leave.start, hourMin));
+                    if (mins > 0) {
+                        const isHandover = (wE === (s.start + s.duration) && (s.start + s.duration) > hourMin);
+                        if (!((realH >= 5 && realH < 20) && isHandover)) { if (i >= 16 || mins >= 30) originalCounts[i]++; }
+                    }
+                }
+            }
+        });
+
+        let rosteredTrainers = approvedItems.filter(s => trainersList.includes(s.name));
         let staff = approvedItems.filter(s => !traineeList.includes(s.name)).sort((a,b) => a.start - b.start);
         let trainees = approvedItems.filter(s => traineeList.includes(s.name)).sort((a,b) => a.start - b.start);
-        let previewItem = previewIdx !== null ? rawItems[previewIdx] : null;
+        let activePreviews = Array.from(previewIndices).map(idx => rawItems[idx]);
+        let previewReplacements = new Set(activePreviews.map(p => p.name));
 
         let sortedVisualItems = [];
         staff.forEach(member => {
-            sortedVisualItems.push({ item: member, state: (previewItem && previewItem.name === member.name) ? 'replaced' : 'normal' });
-            trainees.filter(t => t.trainer === member.name).forEach(t => sortedVisualItems.push({ item: t, state: (previewItem && previewItem.name === t.name) ? 'replaced' : 'normal' }));
+            let barState = previewReplacements.has(member.name) ? 'replaced' : 'normal';
+            sortedVisualItems.push({ item: member, state: barState });
+            trainees.filter(t => t.trainer === member.name).forEach(t => sortedVisualItems.push({ item: t, state: previewReplacements.has(t.name) ? 'replaced' : 'normal' }));
         });
         trainees.filter(t => !t.trainer).forEach(t => {
+            let tState = previewReplacements.has(t.name) ? 'replaced' : 'normal';
             let pos = sortedVisualItems.findIndex(s => s.item.start > t.start);
-            if(pos === -1) sortedVisualItems.push({ item: t, state: (previewItem && previewItem.name === t.name) ? 'replaced' : 'normal' });
-            else sortedVisualItems.splice(pos, 0, { item: t, state: (previewItem && previewItem.name === t.name) ? 'replaced' : 'normal' });
+            if(pos === -1) sortedVisualItems.push({ item: t, state: tState }); else sortedVisualItems.splice(pos, 0, { item: t, state: tState });
         });
 
-        if (previewItem && previewItem.status !== "Approved!") {
-            const isT = traineeList.includes(previewItem.name), pT = previewItem.trainer;
-            if (isT && pT) { let trIdx = sortedVisualItems.findIndex(s => s.item.name === pT); if (trIdx !== -1) sortedVisualItems.splice(trIdx + 1, 0, { item: previewItem, state: 'new' }); else sortedVisualItems.push({ item: previewItem, state: 'new' }); }
-            else { let pos = sortedVisualItems.findIndex(s => s.item.start > previewItem.start); if (pos === -1) sortedVisualItems.push({ item: previewItem, state: 'new' }); else sortedVisualItems.splice(pos, 0, { item: previewItem, state: 'new' }); }
-        }
+        activePreviews.forEach(previewItem => {
+            if (previewItem.status !== "Approved!") {
+                let pos = sortedVisualItems.findIndex(s => s.item.start > previewItem.start);
+                if (pos === -1) sortedVisualItems.push({ item: previewItem, state: 'new' }); else sortedVisualItems.splice(pos, 0, { item: previewItem, state: 'new' });
+            }
+        });
 
         approvedItems.sort((a,b) => a.start - b.start).forEach((s) => {
-            const item = document.createElement('div'); const isT = traineeList.includes(s.name);
+            const item = document.createElement('div'), isT = traineeList.includes(s.name);
             item.className = 'employee-item' + (s.inactive ? ' inactive' : '') + (isT ? ' trainee-row' : '');
-            let detail = ""; if (s.leave) detail += `<span class="sidebar-detail-tag">LV: ${s.leave.label}</span>`;
-            if (s.xte) detail += `<span class="sidebar-detail-tag" style="background:#ecfdf5">XTE: ${s.xte.label}</span>`;
-            item.innerHTML = `<div class="item-main-row"><div class="employee-info"><b>${s.name}${isT?'<span class="badge-trainee">T</span>':''}${s.isCIC?'<span class="cic-tag">(CIC)</span>':''}</b><br><small>${s.label}</small><br>${detail}<br><button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button></div><div class="status-checks"><label class="status-label"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${isT ? `<label class="status-label"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : ''}<div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div></div></div><div class="trainee-pairing-row" style="display:${isT?'flex':'none'}">w/ <select class="trainee-dropdown" onchange="setTrainer('${date}', ${s.originalIdx}, this.value)"><option value="">-Trainer-</option>${staff.map(t => `<option value="${t.name}" ${s.trainer===t.name?'selected':''}>${t.name}</option>`).join('')}</select></div>`;
+            let detailTags = "";
+            if (s.leave) detailTags += `<span class="sidebar-detail-tag tag-lv">LV: ${s.leave.label} <span class="tag-del-x" onclick="removeSegment('${date}', ${s.originalIdx}, 'LV')">×</span></span>`;
+            if (s.xte) detailTags += `<span class="sidebar-detail-tag tag-xte">XTE: ${s.xte.label} <span class="tag-del-x" onclick="removeSegment('${date}', ${s.originalIdx}, 'XTE')">×</span></span>`;
+            let trainerOptions = rosteredTrainers.map(t => `<option value="${t.name}" ${s.trainer===t.name?'selected':''}>${t.name}</option>`).join('');
+            let dropdownHTML = isT ? `<div class="trainee-pairing-col"><select class="trainee-dropdown" onchange="setTrainer('${date}', ${s.originalIdx}, this.value)"><option value="">-Trainer-</option>${trainerOptions}</select></div>` : '';
+            item.innerHTML = `<div class="item-main-row"><div class="employee-info"><b>${s.name}${isT?'<span class="badge-trainee">T</span>':''}</b><br><small>${s.label}</small><br>${detailTags}<div style="margin-top:8px;"><button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button>${dropdownHTML}</div></div><div class="status-checks"><div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div><label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${isT ? `<label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : ''}</div></div>`;
             rosterBox.appendChild(item);
         });
 
-        pendingItems.forEach((s) => {
-            const item = document.createElement('div'), isPrev = previewIdx === s.originalIdx; 
+        pendingRequests.forEach((s) => {
+            const item = document.createElement('div'), isPrev = previewIndices.has(s.originalIdx); 
             item.className = 'request-item' + (isPrev ? ' active-preview' : '');
-            item.innerHTML = `<div class="request-header"><span class="request-name">${s.name}</span><span class="status-pill pending">PENDING</span></div><div class="request-body"><div class="time-row"><span class="time-label">CURRENT</span><span class="time-val">${s.from}</span></div><div class="time-row"><span class="time-label">REQUEST</span><span class="time-val">${s.shortTo}</span></div></div><div class="request-footer"><div class="req-btn-group"><button class="btn-action" style="background:${isPrev?'#ef4444':'#4b5563'}" onclick="togglePreview(${s.originalIdx})">${isPrev ? 'Stop' : 'Preview'}</button><button class="btn-action" style="background:#0ea5e9" onclick="commitRequest(${s.originalIdx})">Commit</button></div><div class="delete-btn-mini" onclick="deleteItem('${date}', ${s.originalIdx})">×</div></div>`;
+            item.innerHTML = `<div class="request-header"><span class="request-name">${s.name}</span><span class="status-pill">PENDING</span></div><div class="request-body"><div class="time-row"><span class="time-label">CURRENT</span><span class="time-val">${s.from}</span></div><div class="time-row"><span class="time-label">REQUEST</span><span class="time-val">${s.shortTo}</span></div></div><div class="request-footer"><div class="req-btn-group"><button class="btn-action" style="background:${isPrev?'#ef4444':'#4b5563'}" onclick="togglePreview(${s.originalIdx})">${isPrev ? 'Stop' : 'Preview'}</button><button class="btn-action" style="background:#0ea5e9" onclick="commitRequest(${s.originalIdx})">Commit</button></div><div class="delete-btn-mini" onclick="deleteItem('${date}', ${s.originalIdx})">×</div></div>`;
             inboxList.appendChild(item);
         });
 
@@ -332,53 +431,55 @@
         });
 
         for(let i=0; i<24; i++) {
-            const box = document.getElementById(`hour-count-${i}`), h = (i + 4) % 24, val = counts[i];
-            box.innerText = val; box.className = ""; if (h >= 8 && h <= 20) { if (val <= 5) box.classList.add('count-danger'); else if (val === 6) box.classList.add('count-warning'); }
+            const box = document.getElementById(`hour-count-${i}`), h = (i + 4) % 24, val = counts[i], orig = originalCounts[i];
+            box.innerText = val; box.className = "";
+            if (previewIndices.size > 0) { if (val > orig) box.classList.add('count-up'); else if (val < orig) box.classList.add('count-down'); }
+            if (h === 6) { if (val >= 4) box.classList.add('count-success'); else box.classList.add('count-danger'); }
+            else if (h === 20) { if (val >= 8) box.classList.add('count-success'); else box.classList.add('count-danger'); } 
+            else if (h === 21) { if (val >= 5) box.classList.add('count-success'); else box.classList.add('count-danger'); }
+            else if (h === 22) { if (val >= 3) box.classList.add('count-success'); else box.classList.add('count-danger'); }
+            else if (h >= 8 && h < 20) { if (val <= 5) box.classList.add('count-danger'); else if (val === 6) box.classList.add('count-warning'); }
         }
-        updateNowLine();
+        updateNowLine(); updateHistoryButtons();
     }
 
     function renderBar(s, container, counts, state, isT, tWin, isStaffing) {
         let bS = s.start, bE = s.start + s.duration; if (s.xte) { bS = Math.min(bS, s.xte.start); bE = Math.max(bE, s.xte.end); }
+        let totalW = bE - bS;
         const track = document.createElement('div'), bar = document.createElement('div');
         track.className = 'shift-track'; bar.className = 'shift-bar';
         if (isT && !isStaffing) bar.classList.add('bar-trainee'); if (s.inactive) bar.classList.add('bar-inactive');
         if (state === 'new') bar.classList.add('preview-new'); if (state === 'replaced') bar.classList.add('preview-replaced');
-
-        if (tWin && state === 'normal' && !s.inactive) {
-            const stripe = document.createElement('div'); stripe.className = 'overlay-segment trainer-stripes-overlay';
-            if (tWin.end > tWin.start) { stripe.style.left = ((tWin.start - bS) / (bE - bS) * 100) + "%"; stripe.style.width = ((Math.min(tWin.end, s.start + s.duration - 60) - tWin.start) / (bE - bS) * 100) + "%"; bar.appendChild(stripe); }
-        }
+        bar.style.gridColumn = `${bS + 1} / span ${totalW}`;
+        bar.innerHTML = `<span class="bar-content-text"><b>${s.name}</b> <span>${s.label} (${s.durHours || s.duration/60}h)</span></span>`;
         const endH = (Math.floor((s.start + s.duration) / 60) + 4) % 24;
         if (state === 'normal' && !s.inactive && (!isT || isStaffing) && endH <= 22 && endH >= 5 && s.start < 1020) {
             const yellow = document.createElement('div'); yellow.className = 'overlay-segment yellow-bar-overlay';
             const wE = (s.leave && s.leave.end === (s.start+s.duration)) ? s.leave.start : (s.start+s.duration);
-            yellow.style.left = ((wE - 60 - bS) / (bE - bS) * 100) + "%"; yellow.style.width = (60 / (bE - bS) * 100) + "%"; bar.appendChild(yellow);
+            yellow.style.left = ((wE - 60 - bS) / totalW * 100) + "%"; yellow.style.width = (60 / totalW * 100) + "%"; bar.appendChild(yellow);
         }
-        if (state === 'normal' && s.xte) { const x = document.createElement('div'); x.className = 'overlay-segment xte-segment'; x.style.left = ((s.xte.start - bS) / (bE - bS) * 100) + "%"; x.style.width = ((s.xte.end - s.xte.start) / (bE - bS) * 100) + "%"; x.innerHTML = `<span>XTE</span>`; bar.appendChild(x); }
-        if (state === 'normal' && s.leave) { const l = document.createElement('div'); l.className = 'overlay-segment leave-segment'; l.style.left = ((s.leave.start - bS) / (bE - bS) * 100) + "%"; l.style.width = ((s.leave.end - s.leave.start) / (bE - bS) * 100) + "%"; l.innerHTML = `<span>LV</span>`; bar.appendChild(l); }
-
-        bar.style.gridColumn = `${bS + 1} / span ${bE - bS}`;
-        bar.innerHTML += `<span class="bar-content-text"><b>${s.name}${s.isCIC?' (CIC)':''}</b> <span>${s.label}</span></span>`;
+        if (state === 'normal' && s.xte) { const x = document.createElement('div'); x.className = 'overlay-segment xte-segment'; x.style.left = ((s.xte.start - bS) / totalW * 100) + "%"; x.style.width = ((s.xte.end - s.xte.start) / totalW * 100) + "%"; x.innerHTML = `<span class="segment-label">XTE</span><span class="segment-time">${s.xte.label}</span>`; bar.appendChild(x); }
+        if (state === 'normal' && s.leave) { const l = document.createElement('div'); l.className = 'overlay-segment leave-segment'; l.style.left = ((s.leave.start - bS) / totalW * 100) + "%"; l.style.width = ((s.leave.end - s.leave.start) / totalW * 100) + "%"; l.innerHTML = `<span class="segment-label">LV</span><span class="segment-time">${s.leave.label}</span>`; bar.appendChild(l); }
+        if (tWin && state === 'normal' && !s.inactive) {
+            const stripe = document.createElement('div'); stripe.className = 'overlay-segment trainer-stripes-overlay';
+            let sO = Math.max(s.start, tWin.start), eO = Math.min((s.start + s.duration), tWin.end);
+            if (eO > sO) { stripe.style.left = ((sO - bS) / totalW * 100) + "%"; stripe.style.width = ((Math.min(eO, s.start + s.duration - 60) - sO) / totalW * 100) + "%"; bar.appendChild(stripe); }
+        }
         track.appendChild(bar); container.appendChild(track);
-
-        if (state === 'normal' && !s.inactive && (!isT || isStaffing)) {
+        if (state !== 'replaced' && !s.inactive && (!isT || isStaffing)) {
             for (let i = 0; i < 24; i++) {
-                const hourMin = i * 60, hourMax = hourMin + 60, slotH = (i + 4) % 24;
-                let wS = Math.max(s.start, hourMin), wE = Math.min(s.start + s.duration, hourMax), minsInHour = Math.max(0, wE - wS);
-                if (s.leave) minsInHour -= Math.max(0, Math.min(s.leave.end, hourMax) - Math.max(s.leave.start, hourMin));
-                if (minsInHour > 0) {
-                    const isLastHour = (wE === (s.start + s.duration));
-                    if (isLastHour && minsInHour >= 45) { } 
-                    else if (isLastHour && (slotH <= 22 && slotH >= 5) && s.start < 1020) { if (minsInHour >= 60) counts[i]++; } 
-                    else { if (minsInHour >= 30) counts[i]++; }
+                const hourMin = i * 60, hourMax = hourMin + 60, realHour = (i + 4) % 24;
+                let wS = Math.max(s.start, hourMin), wE = Math.min(s.start + s.duration, hourMax), mins = Math.max(0, wE - wS);
+                if (s.leave) mins -= Math.max(0, Math.min(s.leave.end, hourMax) - Math.max(s.leave.start, hourMin));
+                if (mins > 0) {
+                    const isHandover = (wE === (s.start + s.duration) && (s.start + s.duration) > hourMin);
+                    if (!((realHour >= 5 && realHour < 20) && isHandover)) { if (i >= 16 || mins >= 30) counts[i]++; }
                 }
             }
         }
     }
-
     document.getElementById('date-picker').value = new Date().toISOString().split('T')[0];
-    document.getElementById('date-picker').addEventListener('change', () => { saveToStorage(); });
+    document.getElementById('date-picker').addEventListener('change', () => { render(document.getElementById('date-picker').value); });
     initHeader(); render(document.getElementById('date-picker').value);
     function updateNowLine() {
         const now = new Date(), pD = document.getElementById('date-picker').value; if (!pD) return;
