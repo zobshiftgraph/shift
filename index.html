@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Graph - Final Renaming</title>
+    <title>Shift Graph - Staffing Checkbox Update</title>
     <style>
         :root {
             --grid-border: #d1d5db;
@@ -47,9 +47,6 @@
         .btn-leave { background-color: #6b7280; }
         .btn-xte { background-color: #16a34a; }
         .btn-edit { background-color: #f59e0b; }
-        .btn-commit { background-color: var(--commit-blue); }
-        .btn-preview { background-color: #4b5563; }
-        .btn-preview.active { background-color: var(--danger-red); }
 
         .main-layout { display: flex; flex-grow: 1; gap: 8px; overflow: hidden; min-height: 0; }
         .graph-container { flex-grow: 1; background: white; border: 1px solid var(--grid-border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -96,19 +93,20 @@
         .status-pill.pending { background: var(--tag-pending); color: var(--tag-pending-text); border: 1px solid #fed7aa; }
         .status-pill.denied { background: var(--tag-denied); color: var(--tag-denied-text); border: 1px solid #fecaca; }
         .request-details { font-size: 0.7rem; color: #64748b; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
-        .request-arrow { color: #94a3b8; font-weight: bold; }
-        .request-time-new { color: #0f172a; font-weight: 700; }
         .request-actions { display: flex; gap: 4px; }
         .request-actions .btn-action { font-size: 0.6rem; padding: 3px 6px; }
 
         .pending-badge { background: #2563eb; color: white; font-size: 0.65rem; padding: 1px 6px; border-radius: 10px; font-weight: 900; }
         .badge-trainee { font-size: 0.55rem; background: var(--trainee-text); color: white; padding: 1px 4px; border-radius: 4px; vertical-align: middle; margin-left: 5px; font-weight: 800; }
-        .inactive-label { font-size: 0.65rem; color: #6b7280; font-weight: 700; display: flex; align-items: center; cursor: pointer; gap: 4px; text-transform: uppercase; }
+        
+        .status-checks { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+        .status-label { font-size: 0.6rem; color: #6b7280; font-weight: 700; display: flex; align-items: center; cursor: pointer; gap: 4px; text-transform: uppercase; line-height: 1; }
+
         .sidebar-detail-tag { font-size: 0.65rem; font-weight: 600; padding: 2px 5px; border-radius: 3px; margin-right: 4px; display: inline-flex; align-items: center; margin-top: 4px; width: fit-content; border: 1px solid #d1d5db; }
         .sidebar-leave { background: #f3f4f6; color: #4b5563; }
         .sidebar-xte { background: #ecfdf5; color: #065f46; border-color: #6ee7b7; }
         .mini-delete { cursor: pointer; margin-left: 8px; font-weight: 900; font-size: 1rem; color: var(--danger-red); line-height: 1; }
-        .delete-btn { color: var(--danger-red); cursor: pointer; font-weight: bold; font-size: 1rem; margin-left: auto; }
+        .delete-btn { color: var(--danger-red); cursor: pointer; font-weight: bold; font-size: 1.1rem; margin-left: auto; }
 
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
         .modal-content { background: white; padding: 20px; border-radius: 12px; width: 450px; }
@@ -239,7 +237,10 @@
     function getMinutesFrom0400(hh, mm) { let t = (hh * 60) + mm - 240; return t < 0 ? t + 1440 : t; }
     function formatTime(hh, mm) { return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`; }
     function togglePreview(idx) { previewIdx = (previewIdx === idx) ? null : idx; render(document.getElementById('date-picker').value); }
+    
     function toggleInactive(date, idx) { saveState(); appData[date][idx].inactive = !appData[date][idx].inactive; saveToStorage(); }
+    function toggleStaffing(date, idx) { saveState(); appData[date][idx].isStaffing = !appData[date][idx].isStaffing; saveToStorage(); }
+    
     function setTrainer(date, tIdx, trainer) { saveState(); appData[date][tIdx].trainer = trainer || null; saveToStorage(); }
     function saveTrainees() { traineeList = document.getElementById('traineeInput').value.split('\n').map(s => s.trim().toUpperCase()).filter(s => s !== ""); localStorage.setItem(TRAINEE_KEY, JSON.stringify(traineeList)); render(document.getElementById('date-picker').value); closeModal('traineeModal'); }
 
@@ -251,15 +252,12 @@
         item.name = ini; item.durHours = d; item.duration = d * 60;
         item.start = getMinutesFrom0400(parseInt(tm[1]), parseInt(tm[2]));
         item.label = `${formatTime(parseInt(tm[1]), parseInt(tm[2]))} - ${formatTime((parseInt(tm[1])+d)%24, parseInt(tm[2]))}`;
-        
         const lvRaw = document.getElementById('editLeave').value.trim(), lvMatch = lvRaw.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
         if (lvMatch) item.leave = { start: getMinutesFrom0400(parseInt(lvMatch[1]), parseInt(lvMatch[2])), end: getMinutesFrom0400(parseInt(lvMatch[3]), parseInt(lvMatch[4])), label: lvRaw };
         else if (lvRaw === "") delete item.leave;
-        
         const xteRaw = document.getElementById('editXte').value.trim(), xteMatch = xteRaw.match(/^(\d{2})(\d{2})-(\d{2})(\d{2})$/);
         if (xteMatch) item.xte = { start: getMinutesFrom0400(parseInt(xteMatch[1]), parseInt(xteMatch[2])), end: getMinutesFrom0400(parseInt(xteMatch[3]), parseInt(xteMatch[4])), label: xteRaw };
         else if (xteRaw === "") delete item.xte;
-
         saveToStorage(); closeModal('editModal');
     }
 
@@ -408,8 +406,17 @@
                 let detailHtml = "";
                 if (s.leave) detailHtml += `<span class="sidebar-detail-tag sidebar-leave">Leave: ${s.leave.label} <span class="mini-delete" onclick="removeSegment(event, '${date}', ${s.originalIdx}, 'leave')">×</span></span>`;
                 if (s.xte) detailHtml += `<span class="sidebar-detail-tag sidebar-xte">XTE: ${s.xte.label} <span class="mini-delete" onclick="removeSegment(event, '${date}', ${s.originalIdx}, 'xte')">×</span></span>`;
+                
                 let drop = isTrainee ? `<div class="trainee-dropdown-container"><label>w/</label><select class="trainee-dropdown" onchange="setTrainer('${date}', ${s.originalIdx}, this.value)"><option value="">-Select-</option>${staff.map(t => `<option value="${t.name}" ${s.trainer===t.name?'selected':''}>${t.name}</option>`).join('')}</select></div>` : "";
-                item.innerHTML = `<div class="employee-info"><b>${s.name}${isTrainee?'<span class="badge-trainee">TRAINEE</span>':''}</b><br><small>${s.label} (${s.durHours}h)</small><br>${detailHtml}<br><button class="btn-action btn-leave" onclick="openModal('leaveModal', ${s.originalIdx})">Leave</button> <button class="btn-action btn-xte" onclick="openModal('xteModal', ${s.originalIdx})">XTE</button> <button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button></div><label class="inactive-label"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${drop}<div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div>`;
+                
+                let staffingCheck = isTrainee ? `<label class="status-label"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : "";
+
+                item.innerHTML = `<div class="employee-info"><b>${s.name}${isTrainee?'<span class="badge-trainee">TRAINEE</span>':''}</b><br><small>${s.label} (${s.durHours}h)</small><br>${detailHtml}<br><button class="btn-action btn-leave" onclick="openModal('leaveModal', ${s.originalIdx})">Leave</button> <button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button></div>
+                <div class="status-checks">
+                    <label class="status-label"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>
+                    ${staffingCheck}
+                </div>
+                ${drop}<div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div>`;
                 rosterBox.appendChild(item);
             } else {
                 const item = document.createElement('div');
@@ -436,39 +443,45 @@
         });
 
         sortedVisualItems.forEach(obj => {
-            const pairedTrainee = trainees.find(t => t.trainer === obj.item.name);
+            const pairedTrainee = trainees.find(t => t.trainer === obj.item.name && !t.isStaffing);
             let trainingWindow = (pairedTrainee && !traineeList.includes(obj.item.name)) ? { start: pairedTrainee.start, end: (pairedTrainee.start + pairedTrainee.duration) } : null;
-            renderBar(obj.item, gridBody, counts, obj.state, traineeList.includes(obj.item.name), trainingWindow);
+            renderBar(obj.item, gridBody, counts, obj.state, traineeList.includes(obj.item.name), trainingWindow, obj.item.isStaffing);
         });
 
         counts.forEach((c, i) => document.getElementById(`hour-count-${i}`).innerText = c);
         updateNowLine();
     }
 
-    function renderBar(s, container, counts, state, isTrainee, trainingWindow = null) {
+    function renderBar(s, container, counts, state, isTrainee, trainingWindow = null, isStaffingMode = false) {
         let barStart = s.start, barEnd = s.start + s.duration;
         if (s.xte) { barStart = Math.min(barStart, s.xte.start); barEnd = Math.max(barEnd, s.xte.end); }
         let totalWidthMinutes = barEnd - barStart;
         const track = document.createElement('div'); track.className = 'shift-track';
         const bar = document.createElement('div'); bar.className = 'shift-bar';
-        if (isTrainee) bar.classList.add('bar-trainee');
+        
+        // Coloring Logic
+        if (isTrainee && !isStaffingMode) bar.classList.add('bar-trainee');
         if (s.inactive) bar.classList.add('bar-inactive');
         if (state === 'new') bar.classList.add('preview-new');
         if (state === 'replaced') bar.classList.add('preview-replaced');
 
+        // Trainer Stripes Layer
         if (trainingWindow && state === 'normal' && !s.inactive) {
             const stripe = document.createElement('div'); stripe.className = 'overlay-segment trainer-stripes-overlay';
             const sOverlap = Math.max(s.start, trainingWindow.start), eOverlap = Math.min((s.start + s.duration), trainingWindow.end);
             const maxStripeEnd = (s.start + s.duration - 60), finalEnd = Math.min(eOverlap, maxStripeEnd);
             if (finalEnd > sOverlap) { stripe.style.left = ((sOverlap - barStart) / totalWidthMinutes * 100) + "%"; stripe.style.width = ((finalEnd - sOverlap) / totalWidthMinutes * 100) + "%"; bar.appendChild(stripe); }
         }
+        
+        // Yellow Bar Layer (Staff only OR Staffing-trainees)
         const endH = (Math.floor((s.start + s.duration) / 60) + 4) % 24;
-        if (state === 'normal' && !s.inactive && !isTrainee && endH <= 22 && endH >= 5) {
+        if (state === 'normal' && !s.inactive && (!isTrainee || isStaffingMode) && endH <= 22 && endH >= 5) {
             const yellow = document.createElement('div'); yellow.className = 'overlay-segment yellow-bar-overlay';
             const wEnd = (s.leave && s.leave.end === (s.start+s.duration)) ? s.leave.start : (s.start+s.duration);
             const startPct = ((wEnd - 60 - barStart) / totalWidthMinutes * 100), endPct = ((wEnd - barStart) / totalWidthMinutes * 100);
             yellow.style.left = startPct + "%"; yellow.style.width = (endPct - startPct) + "%"; bar.appendChild(yellow);
         }
+        
         if (state === 'normal' && s.xte) {
             const x = document.createElement('div'); x.className = 'overlay-segment xte-segment';
             const xStartRel = ((s.xte.start - barStart) / totalWidthMinutes * 100), xEndRel = ((s.xte.end - barStart) / totalWidthMinutes * 100);
@@ -483,15 +496,13 @@
         bar.innerHTML += `<span class="bar-content-text"><b>${s.name}</b> <span>${s.label} (${s.durHours}h) ${s.trainer?'(w/ '+s.trainer+')':''}</span></span>`;
         track.appendChild(bar); container.appendChild(track);
 
-        if (state === 'normal' && !s.inactive && !isTrainee) {
+        // Operational Counts Logic (Include Trainees only if isStaffingMode is true)
+        if (state === 'normal' && !s.inactive && (!isTrainee || isStaffingMode)) {
             for (let i = 0; i < 24; i++) {
                 const hourMin = i * 60, hourMax = hourMin + 60, slotH = (i + 4) % 24;
                 let wStart = Math.max(s.start, hourMin), wEnd = Math.min(s.start + s.duration, hourMax), wMins = Math.max(0, wEnd - wStart);
                 if (s.leave) wMins -= Math.max(0, Math.min(s.leave.end, hourMax) - Math.max(s.leave.start, hourMin));
-                if (wMins > 0) {
-                    if ((wEnd === (s.start + s.duration)) && (slotH <= 22 && slotH >= 5)) { if (wMins >= 60) counts[i]++; } 
-                    else { if (wMins >= 30) counts[i]++; }
-                }
+                if (wMins > 0) { if ((wEnd === (s.start + s.duration)) && (slotH <= 22 && slotH >= 5)) { if (wMins >= 60) counts[i]++; } else { if (wMins >= 30) counts[i]++; } }
             }
         }
     }
