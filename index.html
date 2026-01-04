@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Graph - Dynamic Sidebar Build</title>
+    <title>Shift Graph - CIC Build</title>
     <style>
         :root {
             --grid-border: #d1d5db;
@@ -24,6 +24,7 @@
             --preview-green: #22c55e;
             --commit-blue: #0ea5e9;
             --inactive-gray: #9ca3af;
+            --cic-green: #10b981;
         }
 
         body, html { height: 100%; margin: 0; font-family: 'Inter', system-ui, sans-serif; background-color: #f9fafb; overflow: hidden; }
@@ -59,8 +60,7 @@
         .count-down { color: #ef4444 !important; font-size: 0.9rem !important; }
 
         .grid-scroll-area { flex-grow: 1; overflow-y: auto; position: relative; min-height: 0; }
-        .schedule-grid { display: flex; flex-direction: column; min-height: 100%; position: relative; background-size: calc(100% / 24) 100%; }
-        .schedule-grid::before { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: linear-gradient(to right, var(--line-color) 1px, transparent 1px); background-size: calc(100% / 24) 100%; pointer-events: none; }
+        .schedule-grid { display: flex; flex-direction: column; min-height: 100%; position: relative; background-image: linear-gradient(to right, var(--line-color) 1px, transparent 1px); background-size: calc(100% / 24) 100%; }
         #now-line { position: absolute; top: 0; bottom: 0; width: 2px; background-color: #ef4444; z-index: 100; pointer-events: none; display: none; }
 
         .shift-track { display: grid; grid-template-columns: repeat(1440, 1fr); height: 32px; align-items: center; border-bottom: 1px solid #f3f4f6; position: relative; }
@@ -72,8 +72,8 @@
         .preview-replaced { background-color: rgba(147, 197, 253, 0.1) !important; border: 2px dashed #2563eb !important; color: #2563eb !important; opacity: 0.5; z-index: 5 !important; }
 
         .overlay-segment { position: absolute; top: 0; height: 100%; pointer-events: none; }
-        .trainer-stripes-overlay { background-image: repeating-linear-gradient(45deg, rgba(107, 33, 168, 0.3), rgba(107, 33, 168, 0.3) 10px, transparent 10px, transparent 20px); z-index: 2; }
-        .yellow-bar-overlay { background-color: var(--handover-yellow); z-index: 3; }
+        .trainer-stripes-overlay { background-image: repeating-linear-gradient(45deg, rgba(107, 33, 168, 0.3), rgba(107, 33, 168, 0.3) 10px, transparent 10px, transparent 20px); z-index: 11; }
+        .yellow-bar-overlay { background-color: var(--handover-yellow); z-index: 11; }
         
         .xte-segment { background-color: #10b981; color: white; z-index: 12; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 0.8; pointer-events: none; }
         .leave-segment { background-color: #6b7280; color: white; z-index: 13; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 0.8; pointer-events: none; }
@@ -95,8 +95,11 @@
         .tag-lv { background-color: #f3f4f6; color: #374151; }
         .tag-xte { background-color: #ecfdf5; color: #065f46; border-color: #10b981; }
         .tag-del-x { color: #ef4444; font-weight: 900; margin-left: 5px; cursor: pointer; font-size: 0.75rem; }
+        
+        /* CIC STYLING */
+        .cic-tag-graph { color: var(--cic-green); margin-left: 3px; font-weight: 900; }
+        .cic-badge-sidebar { color: white; background: var(--cic-green); padding: 1px 4px; border-radius: 3px; font-size: 0.55rem; font-weight: 900; margin-left: 4px; vertical-align: middle; }
 
-        /* REQUEST STYLES */
         .request-inbox { display: none; flex-direction: column; height: 320px; min-height: 320px; border-top: 2px solid #2563eb; background: #f8fafc; }
         .request-item { display: flex; flex-direction: column; padding: 10px; border-bottom: 1px solid #e2e8f0; background: #fff; margin: 4px; border-radius: 6px; border-left: 3px solid transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .request-item.active-preview { border-color: var(--commit-blue); background: #f0f9ff; border-left: 3px solid var(--commit-blue); border-width: 2px; }
@@ -200,7 +203,8 @@
         timeLabels.innerHTML = ""; coverageCounts.innerHTML = "";
         for (let i = 0; i < 24; i++) {
             const hr = (i + 4) % 24;
-            const ts = document.createElement('span'); ts.innerText = `${hr.toString().padStart(2, '0')}:00`;
+            const ts = document.createElement('span');
+            if (hr !== 4) ts.innerText = `${hr.toString().padStart(2, '0')}:00`; else ts.innerText = "";
             timeLabels.appendChild(ts);
             const cs = document.createElement('span'); cs.id = `hour-count-${i}`; cs.innerText = '0';
             coverageCounts.appendChild(cs);
@@ -298,8 +302,10 @@
             else if (/[A-Z]{2,}/.test(line)) {
                 line.split(/\s+/).forEach(n => { 
                     let tr = n.trim(); if (tr.length >= 2) {
-                        let initials = tr, isCIC = false, cicMatch = tr.match(/^\(([A-Z]{2,4})\)$/i);
+                        let initials = tr, isCIC = false;
+                        let cicMatch = tr.match(/^\(([A-Z]{2,4})\)$/i);
                         if (cicMatch) { initials = cicMatch[1]; isCIC = true; } else if (tr.length === 4) { initials = tr.substring(2); }
+                        
                         const finalIni = initials.toUpperCase(), newStart = getMinutesFrom0400(curH, curM), newDur = curD * 60;
                         const newShiftObj = { name: finalIni, start: newStart, duration: newDur, durHours: curD, label: `${formatTime(curH, curM)} - ${formatTime((curH+curD)%24, curM)}`, status: 'Approved!', isCIC: isCIC };
                         const existingShifts = appData[date].filter(item => item.name === finalIni && item.status === 'Approved!');
@@ -352,13 +358,11 @@
         const rosterBox = document.getElementById('roster-list'), inboxList = document.getElementById('request-inbox-list'), gridBody = document.getElementById('schedule-body');
         const inboxContainer = document.getElementById('request-inbox-container');
         rosterBox.innerHTML = ""; inboxList.innerHTML = ""; gridBody.innerHTML = "";
-        
         const counts = Array(24).fill(0), originalCounts = Array(24).fill(0); 
         let rawItems = (appData[date] || []).map((s, idx) => ({ ...s, originalIdx: idx }));
         let approvedItems = rawItems.filter(s => s.status === "Approved!" && !s.isRDO);
         let pendingRequests = rawItems.filter(s => s.status !== "Approved!");
 
-        // DYNAMICALLY SHOW/HIDE REQUEST LIST
         if (pendingRequests.length > 0) {
             inboxContainer.style.display = 'flex';
             document.getElementById('pending-count').innerText = pendingRequests.length;
@@ -411,9 +415,14 @@
             let detailTags = "";
             if (s.leave) detailTags += `<span class="sidebar-detail-tag tag-lv">LV: ${s.leave.label} <span class="tag-del-x" onclick="removeSegment('${date}', ${s.originalIdx}, 'LV')">×</span></span>`;
             if (s.xte) detailTags += `<span class="sidebar-detail-tag tag-xte">XTE: ${s.xte.label} <span class="tag-del-x" onclick="removeSegment('${date}', ${s.originalIdx}, 'XTE')">×</span></span>`;
+            
             let trainerOptions = rosteredTrainers.map(t => `<option value="${t.name}" ${s.trainer===t.name?'selected':''}>${t.name}</option>`).join('');
             let dropdownHTML = isT ? `<div class="trainee-pairing-col"><select class="trainee-dropdown" onchange="setTrainer('${date}', ${s.originalIdx}, this.value)"><option value="">-Trainer-</option>${trainerOptions}</select></div>` : '';
-            item.innerHTML = `<div class="item-main-row"><div class="employee-info"><b>${s.name}${isT?'<span class="badge-trainee">T</span>':''}</b><br><small>${s.label}</small><br>${detailTags}<div style="margin-top:8px;"><button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button>${dropdownHTML}</div></div><div class="status-checks"><div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div><label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${isT ? `<label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : ''}</div></div>`;
+            
+            // SIDEBAR CIC DISPLAY
+            const cicDisplay = s.isCIC ? `<span class="cic-badge-sidebar">CIC</span>` : "";
+            
+            item.innerHTML = `<div class="item-main-row"><div class="employee-info"><b>${s.name}${isT?'<span class="badge-trainee">T</span>':''}${cicDisplay}</b><br><small>${s.label}</small><br>${detailTags}<div style="margin-top:8px;"><button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button>${dropdownHTML}</div></div><div class="status-checks"><div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div><label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${isT ? `<label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : ''}</div></div>`;
             rosterBox.appendChild(item);
         });
 
@@ -425,9 +434,10 @@
         });
 
         sortedVisualItems.forEach(obj => {
+            const isT = traineeList.includes(obj.item.name);
             const paired = trainees.find(t => t.trainer === obj.item.name && !t.isStaffing);
-            let tWin = (paired && !traineeList.includes(obj.item.name)) ? { start: paired.start, end: (paired.start + paired.duration) } : null;
-            renderBar(obj.item, gridBody, counts, obj.state, traineeList.includes(obj.item.name), tWin, obj.item.isStaffing);
+            let tWin = (paired && !isT) ? { start: paired.start, end: (paired.start + paired.duration) } : null;
+            renderBar(obj.item, gridBody, counts, obj.state, isT, tWin, obj.item.isStaffing);
         });
 
         for(let i=0; i<24; i++) {
@@ -444,26 +454,38 @@
     }
 
     function renderBar(s, container, counts, state, isT, tWin, isStaffing) {
-        let bS = s.start, bE = s.start + s.duration; if (s.xte) { bS = Math.min(bS, s.xte.start); bE = Math.max(bE, s.xte.end); }
+        let bS = s.start, bE = Math.min(s.start + s.duration, 1440); 
+        if (s.xte) { bS = Math.min(bS, s.xte.start); bE = Math.max(bE, Math.min(s.xte.end, 1440)); }
         let totalW = bE - bS;
+        if (totalW <= 0) return;
+
         const track = document.createElement('div'), bar = document.createElement('div');
         track.className = 'shift-track'; bar.className = 'shift-bar';
         if (isT && !isStaffing) bar.classList.add('bar-trainee'); if (s.inactive) bar.classList.add('bar-inactive');
         if (state === 'new') bar.classList.add('preview-new'); if (state === 'replaced') bar.classList.add('preview-replaced');
         bar.style.gridColumn = `${bS + 1} / span ${totalW}`;
-        bar.innerHTML = `<span class="bar-content-text"><b>${s.name}</b> <span>${s.label} (${s.durHours || s.duration/60}h)</span></span>`;
+        
+        // GRAPH CIC DISPLAY
+        const cicDisplay = s.isCIC ? `<span class="cic-tag-graph">CIC</span>` : "";
+        
+        bar.innerHTML = `<span class="bar-content-text"><b>${s.name}${cicDisplay}</b> <span>${s.label} (${s.durHours || s.duration/60}h)</span></span>`;
+        
         const endH = (Math.floor((s.start + s.duration) / 60) + 4) % 24;
         if (state === 'normal' && !s.inactive && (!isT || isStaffing) && endH <= 22 && endH >= 5 && s.start < 1020) {
             const yellow = document.createElement('div'); yellow.className = 'overlay-segment yellow-bar-overlay';
             const wE = (s.leave && s.leave.end === (s.start+s.duration)) ? s.leave.start : (s.start+s.duration);
-            yellow.style.left = ((wE - 60 - bS) / totalW * 100) + "%"; yellow.style.width = (60 / totalW * 100) + "%"; bar.appendChild(yellow);
+            if (wE <= 1440) { yellow.style.left = ((wE - 60 - bS) / totalW * 100) + "%"; yellow.style.width = (60 / totalW * 100) + "%"; bar.appendChild(yellow); }
         }
-        if (state === 'normal' && s.xte) { const x = document.createElement('div'); x.className = 'overlay-segment xte-segment'; x.style.left = ((s.xte.start - bS) / totalW * 100) + "%"; x.style.width = ((s.xte.end - s.xte.start) / totalW * 100) + "%"; x.innerHTML = `<span class="segment-label">XTE</span><span class="segment-time">${s.xte.label}</span>`; bar.appendChild(x); }
-        if (state === 'normal' && s.leave) { const l = document.createElement('div'); l.className = 'overlay-segment leave-segment'; l.style.left = ((s.leave.start - bS) / totalW * 100) + "%"; l.style.width = ((s.leave.end - s.leave.start) / totalW * 100) + "%"; l.innerHTML = `<span class="segment-label">LV</span><span class="segment-time">${s.leave.label}</span>`; bar.appendChild(l); }
+        if (state === 'normal' && s.xte) { 
+            const x = document.createElement('div'); x.className = 'overlay-segment xte-segment'; x.style.left = ((Math.max(s.xte.start, bS) - bS) / totalW * 100) + "%"; x.style.width = ((Math.min(s.xte.end, 1440) - Math.max(s.xte.start, bS)) / totalW * 100) + "%"; x.innerHTML = `<span class="segment-label">XTE</span><span class="segment-time">${s.xte.label}</span>`; bar.appendChild(x); 
+        }
+        if (state === 'normal' && s.leave) { 
+            const l = document.createElement('div'); l.className = 'overlay-segment leave-segment'; l.style.left = ((Math.max(s.leave.start, bS) - bS) / totalW * 100) + "%"; l.style.width = ((Math.min(s.leave.end, 1440) - Math.max(s.leave.start, bS)) / totalW * 100) + "%"; l.innerHTML = `<span class="segment-label">LV</span><span class="segment-time">${s.leave.label}</span>`; bar.appendChild(l); 
+        }
         if (tWin && state === 'normal' && !s.inactive) {
             const stripe = document.createElement('div'); stripe.className = 'overlay-segment trainer-stripes-overlay';
             let sO = Math.max(s.start, tWin.start), eO = Math.min((s.start + s.duration), tWin.end);
-            if (eO > sO) { stripe.style.left = ((sO - bS) / totalW * 100) + "%"; stripe.style.width = ((Math.min(eO, s.start + s.duration - 60) - sO) / totalW * 100) + "%"; bar.appendChild(stripe); }
+            if (eO > sO) { stripe.style.left = ((sO - bS) / totalW * 100) + "%"; stripe.style.width = ((Math.min(eO, Math.min(s.start + s.duration - 60, 1440)) - sO) / totalW * 100) + "%"; bar.appendChild(stripe); }
         }
         track.appendChild(bar); container.appendChild(track);
         if (state !== 'replaced' && !s.inactive && (!isT || isStaffing)) {
