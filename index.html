@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Graph - CIC Build</title>
+    <title>Shift Graph - Menu Build</title>
     <style>
         :root {
             --grid-border: #d1d5db;
@@ -30,7 +30,7 @@
         body, html { height: 100%; margin: 0; font-family: 'Inter', system-ui, sans-serif; background-color: #f9fafb; overflow: hidden; }
         .app-wrapper { display: flex; flex-direction: column; height: 100vh; padding: 8px; box-sizing: border-box; position: relative; }
         .controls { display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; flex-shrink: 0; gap: 10px; }
-        .controls-left { display: flex; align-items: center; gap: 8px; }
+        .controls-left { display: flex; align-items: center; gap: 8px; position: relative; }
         .controls-right { display: flex; gap: 6px; align-items: center; }
         input[type="date"], input[type="text"], input[type="number"], select { padding: 5px; border: 1px solid var(--grid-border); border-radius: 6px; font-size: 0.85rem; }
         
@@ -42,6 +42,15 @@
         .btn-manual { background-color: #10b981; }
         .btn-action { font-size: 0.65rem; padding: 4px 8px; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; text-transform: uppercase; }
         .btn-edit { background-color: #f59e0b; margin-bottom: 4px; display: block; }
+        .btn-menu { background-color: #374151; }
+
+        /* DROPDOWN STYLES */
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content { display: none; position: absolute; left: 0; top: 100%; margin-top: 4px; background-color: white; min-width: 160px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid var(--grid-border); border-radius: 6px; z-index: 200; overflow: hidden; }
+        .dropdown-content button { width: 100%; text-align: left; background: none; color: #374151; padding: 10px 12px; border-radius: 0; border-bottom: 1px solid #f3f4f6; }
+        .dropdown-content button:hover { background-color: #f3f4f6; }
+        .dropdown-content button:last-child { border-bottom: none; }
+        .show { display: block; }
 
         .main-layout { display: flex; flex-grow: 1; gap: 8px; overflow: hidden; min-height: 0; }
         .graph-container { flex-grow: 1; background: white; border: 1px solid var(--grid-border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -55,7 +64,6 @@
         .count-warning { background-color: var(--alert-light-yellow) !important; color: #92400e !important; } 
         .count-danger { background-color: #fecaca !important; color: #b91c1c !important; } 
         .count-success { background-color: var(--success-green) !important; color: #166534 !important; }
-        
         .count-up { color: #10b981 !important; font-size: 0.9rem !important; }
         .count-down { color: #ef4444 !important; font-size: 0.9rem !important; }
 
@@ -95,8 +103,6 @@
         .tag-lv { background-color: #f3f4f6; color: #374151; }
         .tag-xte { background-color: #ecfdf5; color: #065f46; border-color: #10b981; }
         .tag-del-x { color: #ef4444; font-weight: 900; margin-left: 5px; cursor: pointer; font-size: 0.75rem; }
-        
-        /* CIC STYLING */
         .cic-tag-graph { color: var(--cic-green); margin-left: 3px; font-weight: 900; }
         .cic-badge-sidebar { color: white; background: var(--cic-green); padding: 1px 4px; border-radius: 3px; font-size: 0.55rem; font-weight: 900; margin-left: 4px; vertical-align: middle; }
 
@@ -126,6 +132,14 @@
         textarea { flex-grow: 1; width: 100%; min-height: 250px; margin-bottom: 15px; padding: 12px; box-sizing: border-box; font-family: 'Courier New', monospace; font-size: 0.85rem; border: 1px solid var(--grid-border); border-radius: 8px; resize: vertical; }
         .modal-footer { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
         .current-shift-info { font-size: 0.75rem; color: #2563eb; font-weight: 800; margin-bottom: 12px; display: block; background: #eff6ff; padding: 6px 10px; border-radius: 6px; border-left: 3px solid #2563eb; }
+        
+        /* DEBUG TABLE STYLES */
+        #debugTableContainer { margin-bottom: 15px; max-height: 200px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.7rem; display: none; }
+        .debug-table { width: 100%; border-collapse: collapse; }
+        .debug-table th, .debug-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #f3f4f6; }
+        .debug-table th { background: #f9fafb; font-weight: 700; color: #374151; position: sticky; top: 0; }
+        .debug-row-ok { color: #166534; }
+        .debug-row-err { color: #ef4444; background: #fef2f2; }
     </style>
 </head>
 <body>
@@ -133,15 +147,20 @@
 <div class="app-wrapper">
     <div class="controls">
         <div class="controls-left">
+            <div class="dropdown">
+                <button class="btn-menu" onclick="toggleMenu()">☰ Menu</button>
+                <div id="mainDropdown" class="dropdown-content">
+                    <button onclick="openModal('trainerListModal')">Trainers List</button>
+                    <button onclick="openModal('traineeModal')">Trainees List</button>
+                    <button onclick="openModal('manualModal')">Manual Entry</button>
+                </div>
+            </div>
             <input type="date" id="date-picker">
             <button class="btn-undo" id="undoBtn" onclick="undo()" title="Undo">↶</button>
             <button class="btn-redo" id="redoBtn" onclick="redo()" title="Redo">↷</button>
         </div>
         <h2 style="margin:0; flex-grow: 1; text-align: center; font-size: 1.1rem; font-weight: 900; color: #1e293b;">SHIFT GRAPH</h2>
         <div class="controls-right">
-            <button onclick="openModal('trainerListModal')">Trainers</button>
-            <button onclick="openModal('traineeModal')">Trainees</button>
-            <button class="btn-manual" onclick="openModal('manualModal')">Manual</button>
             <button onclick="openModal('rosterModal')">Add Schedule</button>
             <button onclick="openModal('requestModal')">Add Requests</button>
             <button class="btn-clear" onclick="clearAllShifts()">Clear All</button>
@@ -171,8 +190,38 @@
 
 <div id="trainerListModal" class="modal"><div class="modal-content"><h3>Trainer List</h3><textarea id="trainerListInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('trainerListModal')">Cancel</button><button onclick="saveTrainersList()">Apply</button></div></div></div>
 <div id="traineeModal" class="modal"><div class="modal-content"><h3>Trainee List</h3><textarea id="traineeInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('traineeModal')">Cancel</button><button onclick="saveTrainees()">Apply</button></div></div></div>
-<div id="rosterModal" class="modal"><div class="modal-content"><h3>Add Schedule</h3><textarea id="rosterInput"></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('rosterModal')">Cancel</button><button onclick="processRoster()">Apply</button></div></div></div>
-<div id="requestModal" class="modal"><div class="modal-content"><h3>Add Requests</h3><textarea id="requestInput" placeholder="Paste requests here..."></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('requestModal')">Cancel</button><button onclick="processRequestTable()">Apply</button></div></div></div>
+<div id="rosterModal" class="modal"><div class="modal-content"><h3>Add Schedule</h3><textarea id="rosterInput" placeholder="Paste schedule here..."></textarea><div class="modal-footer"><button style="background:#6b7280" onclick="closeModal('rosterModal')">Cancel</button><button onclick="processRoster()">Apply</button></div></div></div>
+
+<div id="requestModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <h3>Add Requests</h3>
+        <p style="font-size:0.7rem; color:#666; margin-top:-10px;">Paste your data below. Mashed text or spaces supported.</p>
+        <textarea id="requestInput" placeholder="Paste requests here..." style="min-height:100px;"></textarea>
+        
+        <div id="debugTableContainer" style="display:none; margin-top:10px;">
+            <table class="debug-table">
+                <thead>
+                    <tr>
+                        <th style="width:10%;">Ini</th>
+                        <th style="width:15%;">Status</th>
+                        <th style="width:20%;">Type</th>
+                        <th style="width:15%;">From</th>
+                        <th style="width:15%;">To</th>
+                        <th style="width:10%;">Dur</th>
+                    </tr>
+                </thead>
+                <tbody id="debugTableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="modal-footer">
+            <button style="background:#6b7280" onclick="closeModal('requestModal')">Cancel</button>
+            <button id="verifyReqBtn" onclick="verifyRequests()">Parse & Verify</button>
+            <button id="saveReqBtn" style="display:none; background:#10b981;" onclick="applyRequests()">Confirm & Save</button>
+        </div>
+    </div>
+</div>
+
 <div id="manualModal" class="modal"><div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') addManualShift()"><h3>Manual Entry</h3><input type="text" id="manualIni" placeholder="Initials" style="margin-bottom:8px; width:100%"><input type="text" id="manualTime" placeholder="hhmm" style="margin-bottom:8px; width:100%"><input type="number" id="manualDur" value="8" style="width:100%"><div class="modal-footer" style="margin-top:15px;"><button style="background:#6b7280" onclick="closeModal('manualModal')">Cancel</button><button onclick="addManualShift()">Add</button></div></div></div>
 <div id="editModal" class="modal">
     <div class="modal-content modal-tiny" onkeydown="if(event.key==='Enter') updateShift()">
@@ -197,6 +246,7 @@
     let trainersList = JSON.parse(localStorage.getItem(TRAINER_LIST_KEY)) || [];
     let undoStack = [], redoStack = [], activeIdx = null;
     let previewIndices = new Set();
+    let parsedRequestData = []; 
 
     function initHeader() {
         const timeLabels = document.getElementById('time-labels'), coverageCounts = document.getElementById('coverage-counts');
@@ -204,10 +254,28 @@
         for (let i = 0; i < 24; i++) {
             const hr = (i + 4) % 24;
             const ts = document.createElement('span');
+            // Hide 04:00 label
             if (hr !== 4) ts.innerText = `${hr.toString().padStart(2, '0')}:00`; else ts.innerText = "";
             timeLabels.appendChild(ts);
             const cs = document.createElement('span'); cs.id = `hour-count-${i}`; cs.innerText = '0';
             coverageCounts.appendChild(cs);
+        }
+    }
+
+    // DROPDOWN LOGIC
+    function toggleMenu() {
+        document.getElementById("mainDropdown").classList.toggle("show");
+    }
+    // Close dropdown if clicked outside
+    window.onclick = function(event) {
+        if (!event.target.matches('.btn-menu')) {
+            var dropdowns = document.getElementsByClassName("dropdown-content");
+            for (var i = 0; i < dropdowns.length; i++) {
+                var openDropdown = dropdowns[i];
+                if (openDropdown.classList.contains('show')) {
+                    openDropdown.classList.remove('show');
+                }
+            }
         }
     }
 
@@ -254,6 +322,10 @@
         } else if (id === 'rosterModal') {
             setTimeout(() => document.getElementById('rosterInput').focus(), 10);
         } else if (id === 'requestModal') {
+            document.getElementById('requestInput').value = '';
+            document.getElementById('debugTableContainer').style.display = 'none';
+            document.getElementById('verifyReqBtn').style.display = 'inline-block';
+            document.getElementById('saveReqBtn').style.display = 'none';
             setTimeout(() => document.getElementById('requestInput').focus(), 10);
         } else if (id === 'trainerListModal') {
             document.getElementById('trainerListInput').value = trainersList.join('\n');
@@ -324,29 +396,212 @@
         document.getElementById('rosterInput').value = ''; saveToStorage(); closeModal('rosterModal');
     }
 
-    function processRequestTable() {
-        const raw = document.getElementById('requestInput').value, date = document.getElementById('date-picker').value;
-        if (!date || !raw) { closeModal('requestModal'); return; }
-        saveState(); if (!appData[date]) appData[date] = [];
-        raw.split('\n').forEach(line => {
-            const tokens = line.trim().split(/\t|\s{2,}/);
-            if (tokens.length >= 6) {
-                const statusStr = tokens[5], isApproved = statusStr === "Approved!", isDenied = statusStr === "Denied", isPending = statusStr.toLowerCase().includes("pending") || (!isApproved && !isDenied && tokens.length > 6);
-                if (isApproved || isDenied || isPending) {
-                    let initials = tokens[0].length === 4 ? tokens[0].substring(2) : tokens[0];
-                    let toMatch = tokens[3].match(/(\d{2})(\d{2})(?:-(\d+))?/);
-                    let isRDO = tokens[3].toLowerCase() === "x";
-                    if (initials && (toMatch || isRDO)) {
-                        let hh = toMatch ? parseInt(toMatch[1]) : 0, mm = toMatch ? parseInt(toMatch[2]) : 0, dur = toMatch ? (toMatch[3] ? parseInt(toMatch[3]) : 8) : 8;
-                        let label = isRDO ? "RDO (Day Off)" : `${formatTime(hh, mm)} - ${formatTime((hh + dur) % 24, mm)}`;
-                        if (isApproved) { appData[date] = appData[date].filter(s => !(s.name === initials && s.status === "Approved!")); appData[date].push({ name: initials, start: getMinutesFrom0400(hh, mm), duration: dur * 60, durHours: dur, label: label, status: "Approved!", isRDO: isRDO }); }
-                        else if (!appData[date].some(e => e.name === initials && e.label === label && e.status === (isDenied ? "Denied" : "Pending"))) {
-                            appData[date].push({ name: initials, start: getMinutesFrom0400(hh, mm), duration: dur * 60, durHours: dur, label: label, status: (isDenied ? "Denied" : "Pending"), from: tokens[2], shortTo: isRDO ? "X" : tokens[3], isRDO: isRDO }); }
+    // --- NEW ROBUST REGEX PARSER WITH DETAILED COLUMNS & LEAVE CODES ---
+    function verifyRequests() {
+        const raw = document.getElementById('requestInput').value;
+        const debugContainer = document.getElementById('debugTableContainer');
+        const debugBody = document.getElementById('debugTableBody');
+        const verifyBtn = document.getElementById('verifyReqBtn');
+        const saveBtn = document.getElementById('saveReqBtn');
+        
+        parsedRequestData = []; 
+        debugBody.innerHTML = "";
+        
+        if (!raw.trim()) { alert("Please paste data first."); return; }
+
+        const regex = /([A-Z]{2,3})\s*(Annual|Shift\s?Chg|Shift\s?Change|Leave)\s*(.*?)\s*(Approved!|Denied|Pending)/gi;
+        
+        let match;
+        let foundAny = false;
+
+        while ((match = regex.exec(raw)) !== null) {
+            foundAny = true;
+            const initials = match[1].toUpperCase();
+            const typeRaw = match[2];
+            const middleText = match[3];
+            const status = match[4];
+            
+            let type = "Unknown";
+            if (typeRaw.toLowerCase().includes("annual") || typeRaw.toLowerCase().includes("leave")) type = "Annual";
+            else if (typeRaw.toLowerCase().includes("shift")) type = "Shift Chg";
+
+            // Extract Times
+            const timeTokens = [];
+            const timeRegex = /(\d{1,2}:?\d{2})(?:-(\d{1,2}))?/g;
+            let tm;
+            while ((tm = timeRegex.exec(middleText)) !== null) {
+                timeTokens.push({
+                    time: tm[1],
+                    dur: tm[2] ? parseInt(tm[2]) : null 
+                });
+            }
+
+            // Detect From Codes (A, SL, HL, ADMIN, XTU)
+            const fromCodeMatch = middleText.match(/\b(A|SL|HL|ADMIN|XTU)\b/i);
+            let fromCode = fromCodeMatch ? fromCodeMatch[0].toUpperCase() : null;
+
+            // Extract fallback duration if not attached to time
+            let duration = 8;
+            const durMatch = middleText.match(/-(\d{1,2})| (\d{1,2})/);
+            if (durMatch) {
+                let dVal = parseInt(durMatch[1] || durMatch[2]);
+                if (dVal > 0 && dVal < 24) duration = dVal;
+            }
+
+            let fromDisp = "-", toDisp = "-", finalDuration = duration;
+
+            if (type === "Shift Chg") {
+                if (fromCode) {
+                    fromDisp = fromCode;
+                    if (timeTokens.length >= 1) {
+                        toDisp = timeTokens[0].time;
+                        if (timeTokens[0].dur) finalDuration = timeTokens[0].dur;
                     }
+                } else if (timeTokens.length >= 2) {
+                    // Case: 0600-10 0500-10
+                    let t1 = timeTokens[0], t2 = timeTokens[1];
+                    fromDisp = t1.time + (t1.dur ? `-${t1.dur}` : "");
+                    toDisp = t2.time;
+                    if (t2.dur) finalDuration = t2.dur;
+                } else if (timeTokens.length === 1) {
+                    // Case: 1300
+                    fromDisp = "Current";
+                    toDisp = timeTokens[0].time;
+                    if (timeTokens[0].dur) finalDuration = timeTokens[0].dur;
+                }
+            } else if (type === "Annual") {
+                if (middleText.toLowerCase().includes("shift") || (!timeTokens.length && !fromCode)) {
+                    fromDisp = "Full";
+                    toDisp = "Shift";
+                    finalDuration = 0;
+                } else if (timeTokens.length >= 2) {
+                    fromDisp = timeTokens[0].time;
+                    toDisp = timeTokens[1].time;
+                    finalDuration = "Partial";
+                }
+            }
+
+            // Append Duration to To Display for clarity
+            let finalToDisp = toDisp;
+            if (type === "Shift Chg" && toDisp !== "-") {
+                if (finalDuration !== 8) {
+                    finalToDisp += `-${finalDuration}`;
+                } else {
+                    finalToDisp = toDisp;
+                }
+            }
+
+            parsedRequestData.push({
+                initials: initials,
+                type: type,
+                times: timeTokens,
+                middleText: middleText,
+                status: status,
+                finalDuration: finalDuration,
+                fromCode: fromCode,
+                displayTo: finalToDisp,
+                displayFrom: fromDisp
+            });
+
+            let statusClass = "debug-row-ok";
+            if (status === "Denied") statusClass = "debug-row-err";
+            else if (status.toLowerCase().includes("pending")) statusClass = "";
+
+            const row = `
+                <tr class="${statusClass}">
+                    <td><strong>${initials}</strong></td>
+                    <td>${status}</td>
+                    <td>${type}</td>
+                    <td>${fromDisp}</td>
+                    <td>${finalToDisp}</td>
+                    <td>${(finalDuration === "Partial" || finalDuration === 0) ? (finalDuration===0?"-":"Partial") : finalDuration + 'h'}</td>
+                </tr>`;
+            debugBody.insertAdjacentHTML('beforeend', row);
+        }
+
+        if (!foundAny) {
+            alert("No valid requests found. Please check data.");
+            return;
+        }
+
+        debugContainer.style.display = 'block';
+        verifyBtn.style.display = 'none';
+        saveBtn.style.display = 'inline-block';
+    }
+
+    function applyRequests() {
+        const date = document.getElementById('date-picker').value;
+        saveState();
+        if (!appData[date]) appData[date] = [];
+
+        parsedRequestData.forEach(req => {
+            const { initials, type, times, finalDuration, status, fromCode, displayTo, displayFrom } = req;
+            const isApproved = status === "Approved!";
+
+            if (type === "Annual") {
+                if (isApproved) {
+                    if (finalDuration === 0) {
+                        appData[date] = appData[date].filter(s => s.name !== initials);
+                    } else if (finalDuration === "Partial" && times.length >= 2) {
+                        let sH = parseInt(times[0].time.replace(':', '').substring(0, 2)), sM = parseInt(times[0].time.replace(':', '').substring(2, 4));
+                        let eH = parseInt(times[1].time.replace(':', '').substring(0, 2)), eM = parseInt(times[1].time.replace(':', '').substring(2, 4));
+                        let lS = getMinutesFrom0400(sH, sM), lE = getMinutesFrom0400(eH, eM);
+                        const shift = appData[date].find(s => s.name === initials && s.status === 'Approved!');
+                        if (shift) {
+                            if ((shift.start + shift.duration) - lE <= 30 && (shift.start + shift.duration) - lE >= 0) lE = shift.start + shift.duration;
+                            shift.leave = { start: lS, end: lE, label: `${times[0].time.replace(':','')}-${times[1].time.replace(':','')}` };
+                        }
+                    }
+                } else {
+                    appData[date].push({ name: initials, status: status, from: "Annual", shortTo: "Shift", start: 0, duration: 0 });
+                }
+            } else if (type === "Shift Chg") {
+                // Determine target time index
+                let targetToken = null;
+                if (!fromCode && times && times.length >= 2) targetToken = times[1];
+                else if (times && times.length >= 1) targetToken = times[0];
+
+                if (targetToken) {
+                    let sH = parseInt(targetToken.time.replace(':', '').substring(0, 2));
+                    let sM = parseInt(targetToken.time.replace(':', '').substring(2, 4));
+                    let newStart = getMinutesFrom0400(sH, sM);
+                    let durMinutes = (typeof finalDuration === 'number' && finalDuration > 0) ? finalDuration * 60 : 8 * 60;
+                    
+                    if (isApproved) {
+                        // Apply to graph
+                        let existing = appData[date].find(s => s.name === initials && s.status === 'Approved!');
+                        if (existing) {
+                            existing.start = newStart; existing.duration = durMinutes; existing.durHours = finalDuration;
+                            existing.label = `${formatTime(sH, sM)} - ${formatTime((sH + finalDuration) % 24, sM)}`;
+                        } else {
+                            appData[date].push({ name: initials, start: newStart, duration: durMinutes, durHours: finalDuration, label: `${formatTime(sH, sM)} - ${formatTime((sH + finalDuration) % 24, sM)}`, status: 'Approved!' });
+                        }
+                    } else {
+                        // Save Pending/Denied with calculated start/duration for Preview
+                        appData[date].push({ 
+                            name: initials, 
+                            status: status, 
+                            from: displayFrom, 
+                            shortTo: displayTo, 
+                            start: newStart,        // Key for preview
+                            duration: durMinutes,   // Key for preview
+                            durHours: finalDuration,
+                            label: `${formatTime(sH, sM)} - ${formatTime((sH + finalDuration) % 24, sM)}`
+                        });
+                    }
+                } else {
+                    // Fallback if no times found (Denied without times?)
+                    appData[date].push({ name: initials, status: status, from: displayFrom, shortTo: displayTo, start: 0, duration: 0 });
                 }
             }
         });
-        document.getElementById('requestInput').value = ''; saveToStorage(); closeModal('requestModal');
+
+        document.getElementById('requestInput').value = '';
+        document.getElementById('debugTableContainer').style.display = 'none';
+        document.getElementById('saveReqBtn').style.display = 'none';
+        document.getElementById('verifyReqBtn').style.display = 'inline-block';
+        saveToStorage(); 
+        closeModal('requestModal');
     }
 
     function deleteItem(d, i) { saveState(); appData[d].splice(i, 1); if(previewIndices.has(i)) previewIndices.delete(i); saveToStorage(); }
@@ -418,8 +673,6 @@
             
             let trainerOptions = rosteredTrainers.map(t => `<option value="${t.name}" ${s.trainer===t.name?'selected':''}>${t.name}</option>`).join('');
             let dropdownHTML = isT ? `<div class="trainee-pairing-col"><select class="trainee-dropdown" onchange="setTrainer('${date}', ${s.originalIdx}, this.value)"><option value="">-Trainer-</option>${trainerOptions}</select></div>` : '';
-            
-            // SIDEBAR CIC DISPLAY
             const cicDisplay = s.isCIC ? `<span class="cic-badge-sidebar">CIC</span>` : "";
             
             item.innerHTML = `<div class="item-main-row"><div class="employee-info"><b>${s.name}${isT?'<span class="badge-trainee">T</span>':''}${cicDisplay}</b><br><small>${s.label}</small><br>${detailTags}<div style="margin-top:8px;"><button class="btn-action btn-edit" onclick="openModal('editModal', ${s.originalIdx})">Edit</button>${dropdownHTML}</div></div><div class="status-checks"><div class="delete-btn" onclick="deleteItem('${date}', ${s.originalIdx})">×</div><label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.inactive?'checked':''} onchange="toggleInactive('${date}', ${s.originalIdx})">Inactive</label>${isT ? `<label class="status-label" style="font-size:0.55rem;"><input type="checkbox" ${s.isStaffing?'checked':''} onchange="toggleStaffing('${date}', ${s.originalIdx})">Staffing</label>` : ''}</div></div>`;
@@ -429,7 +682,11 @@
         pendingRequests.forEach((s) => {
             const item = document.createElement('div'), isPrev = previewIndices.has(s.originalIdx); 
             item.className = 'request-item' + (isPrev ? ' active-preview' : '');
-            item.innerHTML = `<div class="request-header"><span class="request-name">${s.name}</span><span class="status-pill">PENDING</span></div><div class="request-body"><div class="time-row"><span class="time-label">CURRENT</span><span class="time-val">${s.from}</span></div><div class="time-row"><span class="time-label">REQUEST</span><span class="time-val">${s.shortTo}</span></div></div><div class="request-footer"><div class="req-btn-group"><button class="btn-action" style="background:${isPrev?'#ef4444':'#4b5563'}" onclick="togglePreview(${s.originalIdx})">${isPrev ? 'Stop' : 'Preview'}</button><button class="btn-action" style="background:#0ea5e9" onclick="commitRequest(${s.originalIdx})">Commit</button></div><div class="delete-btn-mini" onclick="deleteItem('${date}', ${s.originalIdx})">×</div></div>`;
+            
+            const isDenied = s.status === "Denied";
+            const pillClass = isDenied ? 'background: #fee2e2; color: #b91c1c;' : '';
+            
+            item.innerHTML = `<div class="request-header"><span class="request-name">${s.name}</span><span class="status-pill" style="${pillClass}">${s.status.toUpperCase()}</span></div><div class="request-body"><div class="time-row"><span class="time-label">CURRENT</span><span class="time-val">${s.from}</span></div><div class="time-row"><span class="time-label">REQUEST</span><span class="time-val">${s.shortTo}</span></div></div><div class="request-footer"><div class="req-btn-group"><button class="btn-action" style="background:${isPrev?'#ef4444':'#4b5563'}" onclick="togglePreview(${s.originalIdx})">${isPrev ? 'Stop' : 'Preview'}</button><button class="btn-action" style="background:#0ea5e9" onclick="commitRequest(${s.originalIdx})">Commit</button></div><div class="delete-btn-mini" onclick="deleteItem('${date}', ${s.originalIdx})">×</div></div>`;
             inboxList.appendChild(item);
         });
 
@@ -465,9 +722,7 @@
         if (state === 'new') bar.classList.add('preview-new'); if (state === 'replaced') bar.classList.add('preview-replaced');
         bar.style.gridColumn = `${bS + 1} / span ${totalW}`;
         
-        // GRAPH CIC DISPLAY
         const cicDisplay = s.isCIC ? `<span class="cic-tag-graph">CIC</span>` : "";
-        
         bar.innerHTML = `<span class="bar-content-text"><b>${s.name}${cicDisplay}</b> <span>${s.label} (${s.durHours || s.duration/60}h)</span></span>`;
         
         const endH = (Math.floor((s.start + s.duration) / 60) + 4) % 24;
