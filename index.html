@@ -145,10 +145,24 @@
             border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
         }
 
+        /* Updated Text Container for better centering */
         .bar-text-container {
-            position: relative; z-index: 8; display: flex; align-items: baseline; justify-content: center;
-            gap: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis; max-width: 100%;
+            position: absolute; /* Fixed relative to the bar segment */
+            top: 0;
+            height: 100%;
+            z-index: 8; 
+            display: flex;
+            align-items: center; /* Vertically Center */
+            justify-content: center; /* Horizontally Center */
+            gap: 5px; 
+            text-shadow: 0 1px 3px rgba(0,0,0,0.7); 
+            white-space: nowrap; 
+            overflow: hidden;
+            text-overflow: ellipsis; 
+            max-width: 100%;
+            /* If no inline style width is provided, it defaults to full width of parent */
+            width: 100%; 
+            left: 0;
         }
         .bar-initials { font-weight: 900; font-size: 0.85rem; letter-spacing: 0.5px; }
         .bar-times { font-weight: 500; font-size: 0.7rem; opacity: 0.95; }
@@ -645,14 +659,14 @@
     function processPaste() {
         let text = document.getElementById('pasteInput').value; text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
         let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l);
-        let currentShift = null; let dataBuffer = []; const shiftRegex = /^(\d{3,4})[fF]?(-(\d{1,2}))?$/;
+        let currentShift = null; let dataBuffer = []; const shiftRegex = /^([cC])?(\d{3,4})[fF]?(-(\d{1,2}))?$/;
         function processBuffer() {
             if (!currentShift) return;
             let cleanData = dataBuffer.filter(l => !l.includes(' of '));
             if (cleanData[0]) {
                 let names = cleanData[0].split(/[\s,\t]+/);
                 names.forEach(n => {
-                    if(!n) return; let isCic = false; let cleanName = n;
+                    if(!n) return; let isCic = currentShift.isCic; let cleanName = n;
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
                 });
@@ -664,9 +678,10 @@
             const match = line.match(shiftRegex);
             if (match) {
                 processBuffer(); dataBuffer = [];
-                let t = match[1].padStart(4, '0'); let h = parseInt(t.substring(0, 2)); let m = parseInt(t.substring(2, 4));
-                let dur = match[3] ? parseInt(match[3]) : 8; let eH = (h + dur) % 24;
-                currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}` };
+                let isCicHeader = !!match[1];
+                let t = match[2].padStart(4, '0'); let h = parseInt(t.substring(0, 2)); let m = parseInt(t.substring(2, 4));
+                let dur = match[4] ? parseInt(match[4]) : 8; let eH = (h + dur) % 24;
+                currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, isCic: isCicHeader };
             } else { dataBuffer.push(line); }
         });
         processBuffer(); saveData(); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
@@ -693,7 +708,6 @@
             if (isApproved && isShiftChg) return; if (isApproved && isLeave && cleanFrom.toLowerCase() === 'shift') return;
 
             if (isPendingOrDenied) {
-                // Determine details string
                 let details = '';
                 if (isShiftChg) { 
                     if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; 
@@ -720,7 +734,6 @@
     }
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr) {
-        // Find if this is a toggle-off event
         let idx = shifts.findIndex(s => s.name === cpc);
         if (li.classList.contains('active-preview')) {
             if (previewBackups.has(cpc)) { shifts[idx] = previewBackups.get(cpc); previewBackups.delete(cpc); } 
@@ -738,7 +751,14 @@
             
             let isFullLeave = (!isShiftChange && fromStr.toLowerCase() === 'shift');
 
-            if (isShiftChange) { let p = parseShiftStringForPreview(toStr); if (p) { s.start = p.start; s.end = p.end; } } 
+            if (isShiftChange) { 
+                let p = parseShiftStringForPreview(toStr); 
+                if (p) { 
+                    s.start = p.start; 
+                    s.end = p.end; 
+                    s.isCic = p.isCic;
+                } 
+            } 
             else { if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } }
             
             render(); 
@@ -747,7 +767,7 @@
                 const current = shifts.find(item => item.name === cpc);
                 if(current) {
                     delete current._previewing;
-                    if(isFullLeave) current._hidden = true; // HIDE full leave
+                    if(isFullLeave) current._hidden = true; 
                     render();
                 }
             }, 5000);
@@ -756,28 +776,24 @@
 
     function parseShiftStringForPreview(str) {
         if (!str) return null;
-        let clean = str.replace('f','');
+        let isCic = false;
+        if (/^[cC]/.test(str)) { isCic = true; str = str.substring(1); }
+        let clean = str.replace(/f/gi, '');
         let parts = clean.split('-');
         let start = normalizeTime(parts[0]);
         let end = '';
         if (parts.length > 1) { 
             let p2 = parts[1].trim();
-            // 1-2 digits = Duration (Hours)
             if (p2.length <= 2) {
-                let durHours = parseInt(p2);
-                let h = parseInt(start.substring(0,2));
-                let m = parseInt(start.substring(3,5));
-                let endH = (h + durHours) % 24;
-                end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-            } else {
-                end = normalizeTime(p2); // 3+ digits = Time
-            }
+                let durHours = parseInt(p2); let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
+                let endH = (h + durHours) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+            } else { end = normalizeTime(p2); }
         } 
         else {
             let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
             let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
         }
-        return { start, end };
+        return { start, end, isCic };
     }
 
     function addShift(name, start, end, type, isCic) {
