@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shift Visualizer</title>
+    <title>Shift Visualizer & Request Processor</title>
     <style>
         :root {
             --bg-color: #f4f4f9;
@@ -13,9 +13,21 @@
             --grid-line-color: #e5e7eb;
             --bar-color: #60a5fa;      /* Standard Blue */
             --bar-trainee: #a855f7;    /* Trainee Purple */
+            --bar-leave: #9ca3af;      /* Grey */
+            --bar-tos: #22c55e;        /* Green */
             --bar-hover: #2563eb;
             --danger-color: #ef4444;
+            --pending-color: #d35400;  /* Orange for Pending */
+            --denied-color: #c0392b;   /* Red for Denied */
             --last-hour-color: #fcd34d; /* Yellow */
+            
+            --training-stripe: repeating-linear-gradient(
+                45deg,
+                #60a5fa,
+                #60a5fa 10px,
+                #a855f7 10px,
+                #a855f7 20px
+            );
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -30,7 +42,6 @@
             overflow: hidden;
         }
 
-        /* --- Header --- */
         header {
             padding: 10px 20px;
             background: var(--panel-bg);
@@ -57,224 +68,211 @@
         }
         button:hover { opacity: 0.9; }
         button.secondary { background-color: #6b7280; }
+        button.action-btn { background-color: #0d9488; } 
 
-        /* --- Main Layout --- */
-        .main-container {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-            height: calc(100vh - 60px);
+        .menu-container { position: relative; }
+        .menu-dropdown {
+            position: absolute;
+            top: 100%; left: 0; background: white; border: 1px solid #ccc; border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; flex-direction: column;
+            min-width: 150px; z-index: 1000; margin-top: 5px;
         }
+        .menu-dropdown button {
+            background: none; color: #333; text-align: left; padding: 10px 15px;
+            border-radius: 0; border-bottom: 1px solid #eee;
+        }
+        .menu-dropdown button:last-child { border-bottom: none; }
 
-        /* --- Graph Section (Left) --- */
+        .main-container { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 60px); }
+
         .graph-container {
-            flex: 1; 
-            display: flex;
-            flex-direction: column;
-            border-right: 1px solid #ccc;
-            position: relative;
-            overflow: hidden;
-            background: #fff;
+            flex: 1; display: flex; flex-direction: column; border-right: 1px solid #ccc;
+            position: relative; overflow: hidden; background: #fff;
         }
 
-        .timeline-header {
-            height: 40px;
-            position: relative;
-            border-bottom: 1px solid #ccc;
-            background: #f9fafb;
-            flex-shrink: 0;
+        .timeline-header { height: 40px; position: relative; border-bottom: 1px solid #ccc; background: #f9fafb; flex-shrink: 0; }
+        .time-label { position: absolute; bottom: 5px; font-size: 0.75rem; transform: translateX(-50%); color: #666; }
+
+        .count-header { height: 25px; position: relative; border-bottom: 1px solid #ccc; background: #fff; flex-shrink: 0; }
+        .count-label {
+            position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 0.75rem; font-weight: bold; color: #3b82f6; border-right: 1px dashed #eee;
         }
 
-        .time-label {
-            position: absolute;
-            bottom: 5px;
-            font-size: 0.75rem;
-            transform: translateX(-50%);
-            color: #666;
-        }
+        .graph-body { flex: 1; position: relative; display: flex; flex-direction: column; justify-content: flex-start; overflow-y: hidden; }
 
-        .graph-body {
-            flex: 1;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start; 
-            overflow-y: hidden; 
-        }
+        .grid-lines { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
+        .grid-line { position: absolute; top: 0; bottom: 0; width: 1px; background-color: var(--grid-line-color); }
 
-        .grid-lines {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            pointer-events: none;
-        }
-        .grid-line {
-            position: absolute;
-            top: 0; bottom: 0;
-            width: 1px;
-            background-color: var(--grid-line-color);
-        }
-
-        /* Current Time Line */
         .current-time-line {
-            position: absolute;
-            top: 0; bottom: 0;
-            width: 2px;
-            background-color: var(--danger-color);
-            z-index: 50;
-            pointer-events: none;
-            box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
+            position: absolute; top: 0; bottom: 0; width: 2px; background-color: var(--danger-color);
+            z-index: 50; pointer-events: none; box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
         }
         .current-time-line::after {
-            content: "NOW";
-            position: absolute;
-            top: 2px;
-            left: 4px;
-            font-size: 0.65rem;
-            background: var(--danger-color);
-            color: white;
-            padding: 1px 3px;
-            border-radius: 2px;
+            content: "NOW"; position: absolute; top: 2px; left: 4px; font-size: 0.65rem;
+            background: var(--danger-color); color: white; padding: 1px 3px; border-radius: 2px;
         }
 
-        /* Shift Rows */
-        .shift-row {
-            position: relative;
-            width: 100%;
-            flex: 1; 
-            min-height: 0;
-            display: flex;
-            align-items: center;
-            border-bottom: 1px solid #f3f4f6; 
-        }
+        .shift-row { position: relative; width: 100%; flex: 1; min-height: 0; display: flex; align-items: center; border-bottom: 1px solid #f3f4f6; }
 
-        .shift-bar {
-            position: absolute;
-            height: 70%; 
-            background-color: var(--bar-color);
-            border-radius: 3px;
-            border: 1px solid rgba(0,0,0,0.1);
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 0.75rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            padding: 0 5px;
-            cursor: pointer;
-            z-index: 5;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        .bar-segment {
+            position: absolute; height: 70%; border-radius: 3px; border: 1px solid rgba(0,0,0,0.1);
+            display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem;
+            padding: 0 2px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s;
         }
-        .shift-bar:hover {
-            background-color: var(--bar-hover);
-            z-index: 10;
-            box-shadow: 0 3px 6px rgba(0,0,0,0.2);
-            height: 85%;
-        }
+        .shift-bar { background-color: var(--bar-color); z-index: 5; position: absolute; }
+        .shift-bar:hover { z-index: 10; background-color: var(--bar-hover); height: 85%; }
         .shift-bar.trainee { background-color: var(--bar-trainee); border-color: #7e22ce; }
+        .leave-bar { background-color: var(--bar-leave); z-index: 20; border-color: #6b7280; }
+        .leave-bar:hover { z-index: 25; height: 85%; }
+        .tos-bar { background-color: var(--bar-tos); z-index: 15; border-color: #16a34a; }
+        .tos-bar:hover { z-index: 25; height: 85%; }
 
-        /* Yellow Bar for Last Hour */
+        .preview-highlight {
+            border: 3px solid #22c55e !important;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
+            z-index: 100 !important;
+        }
+
         .last-hour-indicator {
-            position: absolute;
-            top: 0; bottom: 0; right: 0;
-            background-color: var(--last-hour-color);
-            opacity: 0.6;
-            z-index: 6;
-            pointer-events: none;
-            border-left: 1px solid rgba(0,0,0,0.1);
+            position: absolute; top: 0; bottom: 0; background-color: var(--last-hour-color);
+            opacity: 0.6; z-index: 1; pointer-events: none;
+            border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
         }
-        .bar-text { position: relative; z-index: 7; font-weight: 500; }
+        .training-overlap-indicator {
+            position: absolute; top: 0; bottom: 0; background: var(--training-stripe);
+            z-index: 2; pointer-events: none;
+            border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
+        }
 
-        /* --- List Section (Right) --- */
+        .bar-text-container {
+            position: relative; z-index: 8; display: flex; align-items: baseline; justify-content: center;
+            gap: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 100%;
+        }
+        .bar-initials { font-weight: 900; font-size: 0.85rem; letter-spacing: 0.5px; }
+        .bar-times { font-weight: 500; font-size: 0.7rem; opacity: 0.95; }
+
+        .leave-bar .bar-text-container, .tos-bar .bar-text-container {
+            flex-direction: column; align-items: center; justify-content: center; line-height: 0.9; gap: 0; width: 100%;
+        }
+        .leave-bar .bar-initials, .tos-bar .bar-initials { font-size: 0.7rem; }
+        .leave-bar .bar-times, .tos-bar .bar-times { font-size: 0.6rem; }
+
         .list-container {
-            width: 250px;
-            min-width: 250px;
-            max-width: 300px;
-            background: var(--panel-bg);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            border-left: 1px solid #ccc;
+            width: 280px; min-width: 250px; max-width: 320px; background: var(--panel-bg);
+            display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid #ccc;
         }
 
-        .list-header {
-            padding: 10px;
-            font-weight: bold;
-            border-bottom: 1px solid #eee;
-            background: #f3f4f6;
-            font-size: 0.9rem;
-        }
-
-        .employee-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px;
-        }
+        .list-header { padding: 10px; font-weight: bold; border-bottom: 1px solid #eee; background: #f3f4f6; font-size: 0.9rem; }
+        .employee-list { flex: 1; overflow-y: auto; padding: 10px; }
 
         .employee-card {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px;
-            border: 1px solid #eee;
-            border-radius: 6px;
-            margin-bottom: 6px;
-            background: #fff;
-            transition: background 0.2s;
+            display: flex; justify-content: space-between; align-items: flex-start; padding: 8px;
+            border: 1px solid #eee; border-radius: 6px; margin-bottom: 6px; background: #fff; transition: background 0.2s;
         }
         .employee-card.trainee-card { background-color: #f3e8ff; border-color: #d8b4fe; }
         .employee-card:hover { background-color: #f9fafb; }
-        
-        .emp-info { display: flex; flex-direction: column; overflow: hidden; width: 50%; }
+
+        .emp-info { display: flex; flex-direction: column; overflow: hidden; width: 65%; }
         .emp-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .emp-time { font-size: 0.75rem; color: #666; }
+        .emp-notes { font-size: 0.7rem; color: #555; font-style: italic; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cic-tag { font-size: 0.65rem; color: #d97706; font-weight: bold; margin-left: 5px; background: #fef3c7; padding: 1px 3px; border-radius: 3px; }
 
-        .emp-actions { display: flex; gap: 3px; }
+        .tag-row { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 3px; }
+        .tag-badge { font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; border: 1px solid transparent; font-weight: 500; }
+        .tag-leave { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+        .tag-tos { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+
+        .emp-actions { display: flex; gap: 3px; margin-top: 2px; }
         .btn-icon { padding: 4px 8px; font-size: 0.75rem; margin-left: 2px; border-radius: 3px; border:none; color:white; cursor:pointer;}
         .btn-edit { background-color: #f59e0b; }
         .btn-del { background-color: var(--danger-color); }
 
-        /* --- Modals --- */
+        .pending-container {
+            border-top: 2px solid #ccc; background-color: #fafafa; padding: 0;
+            max-height: 35%; overflow-y: auto; display: none; 
+        }
+        .pending-header { padding: 8px 10px; background: #fff3e0; font-weight: bold; font-size: 0.85rem; color: #d35400; border-bottom: 1px solid #eee; }
+        .pending-list { list-style: none; padding: 10px; margin: 0; }
+        
+        .pending-item {
+            background: #fff; border: 1px solid #ddd; border-left-width: 4px; padding: 8px;
+            margin-bottom: 5px; border-radius: 3px; font-size: 0.75rem;
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .pending-item:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .pending-item.active-preview { background-color: #dcfce7; border-left-color: #22c55e !important; border-color: #86efac; }
+        
+        .status-pending { border-left-color: var(--pending-color); }
+        .status-denied { border-left-color: var(--denied-color); }
+        .status-badge-req { color: white; padding: 2px 5px; border-radius: 3px; font-size: 0.65rem; text-transform: uppercase; font-weight: bold; }
+        .bg-pending { background-color: var(--pending-color); }
+        .bg-denied { background-color: var(--denied-color); }
+        .req-info { display: flex; flex-direction: column; width: 85%; }
+        .req-delete { width: 10%; text-align: right; color: #aaa; font-size: 1.1em; }
+        .req-delete:hover { color: #c0392b; }
+
+        /* Modals */
         .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
         }
-        .modal {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            width: 400px;
-            max-width: 90%;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
+        .modal { background: white; padding: 20px; border-radius: 8px; width: 450px; max-width: 90%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .modal h3 { margin-bottom: 15px; }
-        .modal textarea { width: 100%; height: 150px; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; font-family: monospace; }
-        .form-group { margin-bottom: 12px; }
-        .form-group label { display: block; font-size: 0.85rem; margin-bottom: 4px; }
+        .modal textarea { width: 100%; height: 150px; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; font-family: monospace; resize: vertical; }
+        
+        .form-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .form-group { flex: 1; margin-bottom: 12px; position: relative; }
+        .form-group label { display: block; font-size: 0.85rem; margin-bottom: 4px; font-weight: 500;}
         .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .form-group input[readonly] { background-color: #f3f4f6; color: #666; cursor: not-allowed; }
+        
+        .section-title { font-size: 0.8rem; text-transform: uppercase; color: #666; border-bottom: 1px solid #eee; margin-bottom: 10px; padding-bottom: 4px; font-weight: bold; margin-top: 15px; }
+        
+        .input-wrapper { position: relative; display: flex; align-items: center; }
+        .btn-clear {
+            position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+            background: #e5e7eb; color: #555; border: none; font-size: 0.7rem;
+            width: 20px; height: 20px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer;
+        }
+        .btn-clear:hover { background: #d1d5db; }
+
         .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
 
+        .manage-list { list-style: none; max-height: 300px; overflow-y: auto; border: 1px solid #eee; padding: 5px; border-radius: 4px; margin-top: 10px; }
+        .manage-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #eee; align-items: center; }
+        .manage-item:last-child { border-bottom: none; }
+        .manage-input-group { display: flex; gap: 5px; margin-top: 15px; }
+
+        .checkbox-wrapper { display: none; align-items: center; gap: 8px; margin-top: 5px; height: 100%; padding-bottom: 5px; }
+        .checkbox-wrapper input { width: auto; }
+        .checkbox-wrapper label { margin: 0; font-weight: 500; font-size: 0.85rem; cursor: pointer; color: #333; }
     </style>
 </head>
 <body>
 
 <header>
+    <div class="menu-container">
+        <button onclick="toggleMenu()" class="secondary">Menu ▼</button>
+        <div class="menu-dropdown" id="menuDropdown">
+            <button onclick="openManageModal('trainer')">Trainer List</button>
+            <button onclick="openManageModal('trainee')">Trainee List</button>
+        </div>
+    </div>
     <h2>Shift Visualizer</h2>
     <input type="date" id="datePicker">
-    <button onclick="openPasteModal()">+ Paste Data</button>
+    <button onclick="openPasteModal()">Paste Schedule</button>
+    <button class="action-btn" onclick="openRequestModal()">Paste Requests</button>
     <button class="secondary" onclick="clearData()">Clear Day</button>
 </header>
 
 <div class="main-container">
     <div class="graph-container">
         <div class="timeline-header" id="timelineHeader"></div>
+        <div class="count-header" id="countHeader"></div>
         <div class="grid-lines" id="gridLines"></div>
         <div id="currentTimeLine" class="current-time-line" style="display:none;"></div>
         <div class="graph-body" id="graphBody"></div>
@@ -283,6 +281,10 @@
     <div class="list-container">
         <div class="list-header">Employee List</div>
         <div class="employee-list" id="employeeList"></div>
+        <div class="pending-container" id="pendingContainer">
+            <div class="pending-header">Pending / Denied</div>
+            <ul id="pendingList" class="pending-list"></ul>
+        </div>
     </div>
 </div>
 
@@ -298,279 +300,521 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="editModal">
+<div class="modal-overlay" id="requestModal">
     <div class="modal">
-        <h3>Edit Shift</h3>
-        <input type="hidden" id="editId">
-        <div class="form-group"><label>Name</label><input type="text" id="editName"></div>
-        <div class="form-group">
-            <label>Type</label>
-            <select id="editType"><option value="standard">Standard</option><option value="trainee">Trainee</option></select>
-        </div>
-        <div class="form-group"><label>Start</label><input type="time" id="editStart"></div>
-        <div class="form-group"><label>End</label><input type="time" id="editEnd"></div>
-        <div class="form-group"><label>Notes</label><input type="text" id="editNotes"></div>
+        <h3>Paste Request Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste the 8 columns: CPC, TYPE, FROM, TO, WITH, STATUS, INI, DATE.</p>
+        <textarea id="requestInput" placeholder="Paste request table here..."></textarea>
         <div class="modal-actions">
-            <button class="secondary" onclick="closeModal('editModal')">Cancel</button>
-            <button onclick="saveEdit()">Save</button>
+            <button class="secondary" onclick="closeModal('requestModal')">Cancel</button>
+            <button onclick="processRequests()">Process</button>
         </div>
     </div>
 </div>
 
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <h3>Edit Shift</h3>
+        <input type="hidden" id="editId">
+        <div class="form-row">
+            <div class="form-group" style="flex: 1;"><label>Name</label><input type="text" id="editName" readonly></div>
+            <div class="form-group" style="flex: 1; display: flex; align-items: flex-end; flex-direction: column; justify-content: flex-end;">
+                <div class="checkbox-wrapper" id="staffingCheckboxWrapper">
+                    <input type="checkbox" id="editStaffing"><label for="editStaffing">Count for Staffing</label>
+                </div>
+            </div>
+        </div>
+        <div class="form-group" id="trainerSelectWrapper" style="display:none;">
+            <label>Assigned Trainer</label><select id="editAssignedTrainer"><option value="">-- No Trainer --</option></select>
+        </div>
+        <div class="section-title">Main Shift</div>
+        <div class="form-row">
+            <div class="form-group"><label>Start (HHMM)</label><input type="text" id="editStart" placeholder="0600"></div>
+            <div class="form-group"><label>End (HHMM)</label><input type="text" id="editEnd" placeholder="1400"></div>
+        </div>
+        <div class="form-group"><label>Notes</label><div class="input-wrapper"><input type="text" id="editNotes" placeholder="Shift notes..."><button class="btn-clear" onclick="clearInput('editNotes')" title="Clear">✕</button></div></div>
+        <div class="section-title">Leave (Grey)</div>
+        <div class="form-group"><label>Range (e.g. 1300-1400)</label><div class="input-wrapper"><input type="text" id="editLeaveRange" placeholder="HHMM-HHMM"><button class="btn-clear" onclick="clearInput('editLeaveRange')" title="Clear">✕</button></div></div>
+        <div class="section-title">Time Outside Shift (Green)</div>
+        <div class="form-group"><label>Range (e.g. 0300-0400)</label><div class="input-wrapper"><input type="text" id="editTosRange" placeholder="HHMM-HHMM"><button class="btn-clear" onclick="clearInput('editTosRange')" title="Clear">✕</button></div></div>
+        <div class="modal-actions"><button class="secondary" onclick="closeModal('editModal')">Cancel</button><button onclick="saveEdit()">Save</button></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="manageModal">
+    <div class="modal">
+        <h3 id="manageTitle">Manage List</h3>
+        <ul id="manageListEl" class="manage-list"></ul>
+        <div class="manage-input-group"><input type="text" id="manageInput" placeholder="Add Initials/Name..."><button onclick="addListItem()">Add</button></div>
+        <div class="modal-actions"><button class="secondary" onclick="closeModal('manageModal')">Close</button></div>
+    </div>
+</div>
+
 <script>
-    const START_HOUR = 4; // 04:00 Start
-    const TOTAL_MINUTES = 24 * 60; 
-    let currentDate = new Date().toISOString().split('T')[0];
+    const START_HOUR = 4; const TOTAL_MINUTES = 24 * 60; 
+    const today = new Date();
+    let currentDate = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
     let shifts = [];
+    let requests = []; 
+    let previewBackups = new Map(); 
+    let trainers = JSON.parse(localStorage.getItem('app_trainers')) || [];
+    let trainees = JSON.parse(localStorage.getItem('app_trainees')) || [];
+    let currentManageType = ''; 
 
     document.addEventListener('DOMContentLoaded', () => {
         const dateInput = document.getElementById('datePicker');
         dateInput.value = currentDate;
-        dateInput.addEventListener('change', (e) => {
-            currentDate = e.target.value;
-            loadData();
+        dateInput.addEventListener('change', (e) => { 
+            currentDate = e.target.value; 
+            loadData(); 
+            loadRequests(); 
+            updateCurrentTime(); 
         });
-
-        generateTimeline();
-        loadData();
-        
-        updateCurrentTime();
+        generateTimeline(); 
+        loadData(); 
+        loadRequests();
+        updateCurrentTime(); 
         setInterval(updateCurrentTime, 60000);
+        
+        document.addEventListener('click', (e) => { if (!e.target.closest('.menu-container')) document.getElementById('menuDropdown').style.display = 'none'; });
+        document.getElementById('manageInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addListItem(); });
     });
 
-    // --- TIMELINE & CLOCK ---
+    // --- SAVE/LOAD REQUESTS ---
+    function loadRequests() {
+        const stored = localStorage.getItem('requests_' + currentDate);
+        requests = stored ? JSON.parse(stored) : [];
+        renderRequests();
+    }
+    function saveRequests() {
+        localStorage.setItem('requests_' + currentDate, JSON.stringify(requests));
+    }
+    function renderRequests() {
+        const listEl = document.getElementById('pendingList');
+        const container = document.getElementById('pendingContainer');
+        listEl.innerHTML = '';
+        
+        if (requests.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'block';
+        
+        requests.forEach((req, idx) => {
+            const li = document.createElement('li');
+            const isPending = req.status.toLowerCase().includes('pending');
+            li.className = `pending-item ${isPending ? 'status-pending' : 'status-denied'}`;
+            
+            li.innerHTML = `
+                <div class="req-info" onclick="triggerPreview(${idx})">
+                    <span><strong>${req.cpc}</strong>: ${req.type} ${req.details}</span>
+                    <span class="status-badge-req ${isPending ? 'bg-pending' : 'bg-denied'}" style="width: fit-content; margin-top:3px;">${req.status}</span>
+                </div>
+                <div class="req-delete" onclick="deleteRequest(${idx})" title="Remove request">🗑</div>
+            `;
+            listEl.appendChild(li);
+        });
+    }
+    
+    function deleteRequest(idx) {
+        const req = requests[idx];
+        const domItem = document.getElementById('pendingList').children[idx];
+        if (domItem && domItem.classList.contains('active-preview')) {
+            triggerPreview(idx); 
+        }
+        requests.splice(idx, 1);
+        saveRequests();
+        renderRequests();
+    }
+
+    window.triggerPreview = function(idx) {
+        const req = requests[idx];
+        const li = document.getElementById('pendingList').children[idx];
+        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo);
+    };
+
+    function toggleMenu() { const m = document.getElementById('menuDropdown'); m.style.display = m.style.display === 'flex' ? 'none' : 'flex'; }
+    function openManageModal(type) {
+        currentManageType = type;
+        document.getElementById('manageTitle').innerText = type === 'trainer' ? 'Manage Trainer List' : 'Manage Trainee List';
+        renderManageList();
+        document.getElementById('menuDropdown').style.display = 'none';
+        document.getElementById('manageModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('manageInput').focus(), 50);
+    }
+    function renderManageList() {
+        const list = currentManageType === 'trainer' ? trainers : trainees;
+        const ul = document.getElementById('manageListEl'); ul.innerHTML = '';
+        if(list.length === 0) { ul.innerHTML = '<li style="padding:10px; color:#999; text-align:center;">No items yet.</li>'; return; }
+        list.forEach((item, idx) => {
+            const li = document.createElement('li'); li.className = 'manage-item';
+            li.innerHTML = `<span>${item}</span><button class="btn-icon btn-del" onclick="deleteListItem(${idx})">X</button>`;
+            ul.appendChild(li);
+        });
+    }
+    function addListItem() {
+        const val = document.getElementById('manageInput').value.trim(); if(!val) return;
+        if(currentManageType === 'trainer') { trainers.push(val); localStorage.setItem('app_trainers', JSON.stringify(trainers)); } 
+        else { trainees.push(val); localStorage.setItem('app_trainees', JSON.stringify(trainees)); }
+        document.getElementById('manageInput').value = ''; renderManageList(); render();
+    }
+    function deleteListItem(idx) {
+        if(currentManageType === 'trainer') { trainers.splice(idx, 1); localStorage.setItem('app_trainers', JSON.stringify(trainers)); } 
+        else { trainees.splice(idx, 1); localStorage.setItem('app_trainees', JSON.stringify(trainees)); }
+        renderManageList(); render(); 
+    }
+
     function generateTimeline() {
         const header = document.getElementById('timelineHeader');
+        const countHeader = document.getElementById('countHeader');
         const grid = document.getElementById('gridLines');
-        header.innerHTML = ''; grid.innerHTML = '';
-
+        header.innerHTML = ''; countHeader.innerHTML = ''; grid.innerHTML = '';
         for (let i = 0; i <= 24; i++) {
-            let hour = START_HOUR + i;
-            let displayHour = hour % 24; 
-            let labelText = String(displayHour).padStart(2, '0') + ":00";
-            let pct = (i / 24) * 100;
-
+            let hour = START_HOUR + i; let displayHour = hour % 24; 
+            let labelText = String(displayHour).padStart(2, '0') + ":00"; let pct = (i / 24) * 100;
             if (i < 24) { 
-                const line = document.createElement('div');
-                line.className = 'grid-line';
-                line.style.left = pct + '%';
-                grid.appendChild(line);
+                const line = document.createElement('div'); line.className = 'grid-line'; line.style.left = pct + '%'; grid.appendChild(line);
+                const countSlot = document.createElement('div'); countSlot.className = 'count-label'; countSlot.style.left = pct + '%'; countSlot.style.width = (100/24) + '%'; countSlot.id = 'count-' + i; countSlot.innerText = '0'; countHeader.appendChild(countSlot);
             }
-            const label = document.createElement('div');
-            label.className = 'time-label';
-            label.innerText = labelText;
-            label.style.left = pct + '%';
-            header.appendChild(label);
+            const label = document.createElement('div'); label.className = 'time-label'; label.innerText = labelText; label.style.left = pct + '%'; header.appendChild(label);
         }
     }
-
     function updateCurrentTime() {
-        const now = new Date();
-        const line = document.getElementById('currentTimeLine');
-        let h = now.getHours();
-        let m = now.getMinutes();
-        let minutesFromMidnight = (h * 60) + m;
-        let startOfDayMinutes = START_HOUR * 60;
-        let rel = minutesFromMidnight - startOfDayMinutes;
-        if (rel < 0) rel += (24 * 60);
-
-        if (rel >= 0 && rel <= TOTAL_MINUTES) {
-            let pct = (rel / TOTAL_MINUTES) * 100;
-            line.style.left = pct + '%';
-            line.style.display = 'block';
-        } else {
-            line.style.display = 'none';
-        }
+        const now = new Date(); const line = document.getElementById('currentTimeLine');
+        const pickerValue = document.getElementById('datePicker').value; if (!pickerValue) return;
+        const [pYear, pMonth, pDay] = pickerValue.split('-').map(Number);
+        const startBoundary = new Date(pYear, pMonth - 1, pDay, START_HOUR, 0, 0, 0);
+        const endBoundary = new Date(startBoundary); endBoundary.setDate(endBoundary.getDate() + 1);
+        if (now >= startBoundary && now < endBoundary) {
+            const pct = ((now - startBoundary) / (endBoundary - startBoundary)) * 100;
+            line.style.left = pct + '%'; line.style.display = 'block';
+        } else { line.style.display = 'none'; }
     }
 
-    // --- RENDER ---
     function timeToOffset(timeStr) {
-        let clean = timeStr.replace(':', '');
-        let h = parseInt(clean.substring(0, 2));
-        let m = parseInt(clean.substring(2, 4));
-        let mins = (h * 60) + m;
-        let startMins = START_HOUR * 60;
-        let rel = mins - startMins;
-        if (rel < 0) rel += (24 * 60);
-        return rel;
+        if (!timeStr) return null;
+        let clean = timeStr.replace(':', ''); let h = parseInt(clean.substring(0, 2)); let m = parseInt(clean.substring(2, 4));
+        let mins = (h * 60) + m; let rel = mins - (START_HOUR * 60); if (rel < 0) rel += (24 * 60); return rel;
+    }
+    function normalizeTime(t) {
+        if (!t) return '';
+        t = t.trim(); if (t.includes(':')) return t;
+        if (t.length === 4) return `${t.substring(0,2)}:${t.substring(2,4)}`;
+        if (t.length === 3) return `0${t.substring(0,1)}:${t.substring(1,3)}`;
+        if (t.length === 1 || t.length === 2) return `${t.padStart(2,'0')}:00`;
+        return '';
+    }
+    function parseRangeStr(str) {
+        if(!str || !str.trim()) return { start: '', end: '' };
+        let parts = str.split(/[-–to\s]+/).filter(x => x);
+        if(parts.length < 2) return { start: '', end: '' };
+        return { start: normalizeTime(parts[0]), end: normalizeTime(parts[1]) };
+    }
+    function getOverlap(start1, end1, start2, end2) { if(start1 == null || end1 == null) return 0; let s = Math.max(start1, start2); let e = Math.min(end1, end2); return Math.max(0, e - s); }
+    function calculateShiftMeta(shift) {
+        const startOffset = timeToOffset(shift.start); const endOffset = timeToOffset(shift.end);
+        let duration = endOffset - startOffset; if (duration < 0) duration += (24 * 60); 
+        let yEndMins = endOffset; let yStartMins = endOffset - 60; 
+        if (shift.leaveStart && shift.leaveEnd) {
+            const ls = timeToOffset(shift.leaveStart); const le = timeToOffset(shift.leaveEnd);
+            let diff = endOffset - le; if (diff < -1000) diff += 1440; 
+            if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
+        }
+        return { start: startOffset, end: startOffset + duration, yStart: yStartMins, yEnd: yEndMins };
+    }
+
+    function createBarElement(startStr, endStr, className, initials, timesLabel) {
+        if(!startStr || !endStr) return null;
+        const startOffset = timeToOffset(startStr); const endOffset = timeToOffset(endStr);
+        let duration = endOffset - startOffset; if (duration < 0) duration += (24 * 60); 
+        const leftPct = (startOffset / TOTAL_MINUTES) * 100; const widthPct = (duration / TOTAL_MINUTES) * 100;
+        const el = document.createElement('div'); el.className = `bar-segment ${className}`;
+        el.style.left = `${leftPct}%`; el.style.width = `${widthPct}%`;
+        if (initials) el.innerHTML = `<span class="bar-text-container"><span class="bar-initials">${initials}</span><span class="bar-times">${timesLabel}</span></span>`;
+        return el;
+    }
+    function getSortedIndices() {
+        let sorted = []; let added = new Set(); let traineesByTrainer = {};
+        shifts.forEach((s, idx) => { if(s.assignedTrainer) { if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; traineesByTrainer[s.assignedTrainer].push(idx); } });
+        shifts.forEach((s, idx) => {
+            if(s.assignedTrainer) { if(!shifts.some(p => p.name === s.assignedTrainer)) { if(!added.has(idx)) { sorted.push(idx); added.add(idx); } } } 
+            else { if(!added.has(idx)) { sorted.push(idx); added.add(idx); if(traineesByTrainer[s.name]) { traineesByTrainer[s.name].forEach(childIdx => { if(!added.has(childIdx)) { sorted.push(childIdx); added.add(childIdx); } }); } } }
+        });
+        return sorted;
     }
 
     function render() {
-        const graphBody = document.getElementById('graphBody');
-        const listBody = document.getElementById('employeeList');
+        const graphBody = document.getElementById('graphBody'); const listBody = document.getElementById('employeeList');
         graphBody.innerHTML = ''; listBody.innerHTML = '';
+        const displayOrder = getSortedIndices();
+        displayOrder.forEach(index => {
+            const shift = shifts[index];
+            if (shift._hidden) return; 
 
-        shifts.forEach((shift, index) => {
-            const startOffset = timeToOffset(shift.start);
-            const endOffset = timeToOffset(shift.end);
-            let duration = endOffset - startOffset;
-            if (duration < 0) duration += (24 * 60); 
-
-            // Calculate Duration in Hours
+            let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name); if (shift.isStaffing) isTrainee = false;
+            let meta = calculateShiftMeta(shift);
+            let duration = meta.end - meta.start;
             let durationHours = (duration / 60).toFixed(1).replace('.0', '');
-
-            const leftPct = (startOffset / TOTAL_MINUTES) * 100;
-            const widthPct = (duration / TOTAL_MINUTES) * 100;
             
-            // Yellow Bar (Last 60 mins)
-            let yellowWidthPct = 0;
-            if (duration > 0) {
-                let lastHourMins = Math.min(60, duration);
-                yellowWidthPct = (lastHourMins / duration) * 100;
+            const row = document.createElement('div'); row.className = 'shift-row';
+            let workStart = meta.start; let workEnd = meta.end;
+            if (shift.leaveStart && shift.leaveEnd) {
+                const ls = timeToOffset(shift.leaveStart); const le = timeToOffset(shift.leaveEnd);
+                let seg1 = ls - meta.start; if(seg1<0) seg1=0; let seg2 = meta.end - le; if(seg2<0) seg2=0;
+                if (seg1 >= seg2 && seg1 > 0) workEnd = ls; else if (seg2 > 0) workStart = le;
             }
-
-            const isTrainee = shift.type === 'trainee';
-
-            // --- Graph Row ---
-            const row = document.createElement('div');
-            row.className = 'shift-row';
+            let workDuration = workEnd - workStart;
+            let textLeftPct = ((workStart - meta.start) / duration) * 100; let textWidthPct = (workDuration / duration) * 100;
+            const barWidthPct = (duration / TOTAL_MINUTES) * 100; const barLeftPct = (meta.start / TOTAL_MINUTES) * 100;
             
-            const bar = document.createElement('div');
-            bar.className = `shift-bar ${isTrainee ? 'trainee' : ''}`;
-            bar.style.left = `${leftPct}%`;
-            bar.style.width = `${widthPct}%`;
-            bar.onclick = () => openEditModal(index);
-            bar.title = `${shift.name}: ${shift.start} - ${shift.end} (${durationHours}h)`;
+            let displayName = shift.name; if (shift.isCic) displayName += " (CIC)";
+            let timeLabel = `${shift.start}-${shift.end} ${durationHours}h`;
 
-            let displayName = shift.name;
-            if (shift.isCic) displayName += " (CIC)";
-            if (shift.notes) displayName += ` [${shift.notes}]`;
+            const mainBar = document.createElement('div'); mainBar.className = `bar-segment shift-bar ${isTrainee ? 'trainee' : ''}`;
+            if (shift._previewing) mainBar.classList.add('preview-highlight');
+            mainBar.style.left = `${barLeftPct}%`; mainBar.style.width = `${barWidthPct}%`;
+            mainBar.onclick = () => openEditModal(index); mainBar.title = `${displayName} ${timeLabel}`;
             
-            // Add Time and Duration to Label
-            let label = `${displayName} (${shift.start}-${shift.end}, ${durationHours}h)`;
+            let yellowHtml = '';
+            if (!isTrainee && meta.end < 1110) { 
+                const relativeYellowLeft = ((meta.yStart - meta.start) / duration) * 100; const relativeYellowWidth = (60 / duration) * 100;
+                yellowHtml = `<div class="last-hour-indicator" style="left: ${relativeYellowLeft}%; width: ${relativeYellowWidth}%;"></div>`;
+            }
+            let stripeHtml = '';
+            shifts.forEach(traineeShift => {
+                if(traineeShift.assignedTrainer === shift.name) {
+                    let tMeta = calculateShiftMeta(traineeShift); let overlap = getOverlap(meta.start, meta.end, tMeta.start, tMeta.end);
+                    if(overlap > 0) { let oStart = Math.max(meta.start, tMeta.start); let oLeft = ((oStart - meta.start) / duration) * 100; let oWidth = (overlap / duration) * 100; stripeHtml += `<div class="training-overlap-indicator" style="left: ${oLeft}%; width: ${oWidth}%;"></div>`; }
+                }
+            });
+            mainBar.innerHTML = `<span class="bar-text-container" style="left: ${textLeftPct}%; width: ${textWidthPct}%;"><span class="bar-initials">${displayName}</span><span class="bar-times">${timeLabel}</span></span>${yellowHtml}${stripeHtml}`;
+            row.appendChild(mainBar);
 
-            bar.innerHTML = `
-                <span class="bar-text">${label}</span>
-                <div class="last-hour-indicator" style="width: ${yellowWidthPct}%;"></div>
-            `;
-
-            row.appendChild(bar);
+            if (shift.leaveStart && shift.leaveEnd) {
+                const lb = createBarElement(shift.leaveStart, shift.leaveEnd, 'leave-bar', 'LV', `${shift.leaveStart}-${shift.leaveEnd}`);
+                if(lb) { if (shift._previewing) lb.classList.add('preview-highlight'); lb.onclick = () => openEditModal(index); row.appendChild(lb); }
+            }
+            if (shift.tosStart && shift.tosEnd) {
+                const tb = createBarElement(shift.tosStart, shift.tosEnd, 'tos-bar', 'TOS', `${shift.tosStart}-${shift.tosEnd}`);
+                if(tb) { tb.onclick = () => openEditModal(index); row.appendChild(tb); }
+            }
             graphBody.appendChild(row);
 
-            // --- List Item ---
-            const card = document.createElement('div');
-            card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
-            card.innerHTML = `
-                <div class="emp-info">
-                    <div class="emp-name">
-                        ${shift.name} 
-                        ${shift.isCic ? '<span class="cic-tag">CIC</span>' : ''}
-                    </div>
-                    <div class="emp-time">${shift.start} - ${shift.end} (${durationHours}h)</div>
-                </div>
-                <div class="emp-actions">
-                    <button class="btn-icon btn-edit" onclick="openEditModal(${index})">Edit</button>
-                    <button class="btn-icon btn-del" onclick="deleteShift(${index})">X</button>
-                </div>
-            `;
+            let extraTags = '';
+            if (shift.leaveStart && shift.leaveEnd) extraTags += `<span class="tag-badge tag-leave">LV ${shift.leaveStart}-${shift.leaveEnd}</span>`;
+            if (shift.tosStart && shift.tosEnd) extraTags += `<span class="tag-badge tag-tos">TOS ${shift.tosStart}-${shift.tosEnd}</span>`;
+            let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
+
+            const card = document.createElement('div'); card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
+            card.innerHTML = `<div class="emp-info"><div class="emp-name">${shift.name} ${shift.isCic ? '<span class="cic-tag">CIC</span>' : ''}</div><div class="emp-time">${shift.start} - ${shift.end} (${durationHours}h)</div>${notesHtml}${extraTags ? `<div class="tag-row">${extraTags}</div>` : ''}</div><div class="emp-actions"><button class="btn-icon btn-edit" onclick="openEditModal(${index})">Edit</button><button class="btn-icon btn-del" onclick="deleteShift(${index})">X</button></div>`;
             listBody.appendChild(card);
         });
+        updateStaffCounts();
+    }
+    function updateStaffCounts() {
+        for(let i=0; i<24; i++) {
+            let hourStart = i * 60; let hourEnd = hourStart + 60; let count = 0;
+            shifts.forEach(s => {
+                if (s._hidden) return; // SKIP if hidden
+
+                let meta = calculateShiftMeta(s); let overlap = getOverlap(meta.start, meta.end, hourStart, hourEnd); if (overlap <= 0) return;
+                let isTrainee = s.type === 'trainee' || trainees.includes(s.name); if (s.isStaffing) isTrainee = false;
+                if (!isTrainee && meta.end < 1110) { let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); if (yOverlap >= 30) return; }
+                
+                // Leave Logic
+                if (s.leaveStart && s.leaveEnd) {
+                    const ls = timeToOffset(s.leaveStart);
+                    const le = timeToOffset(s.leaveEnd);
+                    let dur = le - ls; if (dur < 0) dur += (24*60);
+                    let leaveOverlap = getOverlap(ls, ls+dur, hourStart, hourEnd);
+                    if (leaveOverlap >= 30) return; 
+                }
+
+                count++;
+            });
+            const el = document.getElementById('count-'+i); if(el) { el.innerText = count; el.style.color = count > 0 ? '#3b82f6' : '#ccc'; }
+        }
     }
 
-    // --- DATA ---
-    function loadData() {
-        const stored = localStorage.getItem('shifts_' + currentDate);
-        shifts = stored ? JSON.parse(stored) : [];
-        render();
-    }
+    function loadData() { const stored = localStorage.getItem('shifts_' + currentDate); shifts = stored ? JSON.parse(stored) : []; render(); }
     function saveData() { localStorage.setItem('shifts_' + currentDate, JSON.stringify(shifts)); render(); }
     function deleteShift(index) { if(confirm('Delete?')) { shifts.splice(index, 1); saveData(); } }
     function clearData() { if(confirm('Clear all?')) { shifts = []; saveData(); } }
 
-    // --- PARSER ---
     function processPaste() {
-        let text = document.getElementById('pasteInput').value;
-        text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
+        let text = document.getElementById('pasteInput').value; text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
         let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l);
-
-        let currentShift = null;
-        let dataBuffer = []; 
-        const shiftRegex = /^(\d{3,4})[fF]?(-(\d{1,2}))?$/;
-
+        let currentShift = null; let dataBuffer = []; const shiftRegex = /^(\d{3,4})[fF]?(-(\d{1,2}))?$/;
         function processBuffer() {
             if (!currentShift) return;
             let cleanData = dataBuffer.filter(l => !l.includes(' of '));
-            
-            // Split by space/comma/tab to ensure distinct bars
-            // Line 0: SUP
             if (cleanData[0]) {
                 let names = cleanData[0].split(/[\s,\t]+/);
                 names.forEach(n => {
-                    if(!n) return;
-                    let isCic = false;
-                    let cleanName = n;
-                    if (cleanName.includes('(') && cleanName.includes(')')) {
-                        isCic = true;
-                        cleanName = cleanName.replace(/[()]/g, '').trim();
-                    }
+                    if(!n) return; let isCic = false; let cleanName = n;
+                    if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
                 });
             }
-            // Line 1: CPC
-            if (cleanData[1]) {
-                cleanData[1].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'standard', false); });
-            }
-            // Line 2: DEV
-            if (cleanData[2]) {
-                cleanData[2].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'trainee', false); });
-            }
+            if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'standard', false); });
+            if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'trainee', false); });
         }
-
         lines.forEach(line => {
             const match = line.match(shiftRegex);
             if (match) {
-                processBuffer();
-                dataBuffer = [];
-                let t = match[1].padStart(4, '0');
-                let h = parseInt(t.substring(0, 2));
-                let m = parseInt(t.substring(2, 4));
-                let dur = match[3] ? parseInt(match[3]) : 8;
-                let eH = (h + dur) % 24;
-                currentShift = {
-                    start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
-                    end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`
-                };
-            } else {
-                dataBuffer.push(line);
+                processBuffer(); dataBuffer = [];
+                let t = match[1].padStart(4, '0'); let h = parseInt(t.substring(0, 2)); let m = parseInt(t.substring(2, 4));
+                let dur = match[3] ? parseInt(match[3]) : 8; let eH = (h + dur) % 24;
+                currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}` };
+            } else { dataBuffer.push(line); }
+        });
+        processBuffer(); saveData(); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+    }
+
+    function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
+    
+    function processRequests() {
+        const text = document.getElementById('requestInput').value; 
+        const lines = text.split(/\n/);
+        
+        lines.forEach(line => {
+            if (!line.trim()) return;
+            let cols = line.split(/\t/); if (cols.length < 5) cols = line.split(/\s{2,}/); if (cols.length < 5) cols = line.split(/\s+/);
+            if (cols.length < 6) return; if (cols[0].toUpperCase() === 'CPC' && cols[1].toUpperCase().includes('TYPE')) return;
+            const cpc = cols[0].trim(); const typeRaw = cols[1].trim(); let from = cols[2].trim(); let to = cols[3].trim(); const status = cols[5].trim();
+            
+            let cleanFrom = from; if (cleanFrom.toLowerCase() !== 'shift') cleanFrom = cleanFrom.replace(/f/gi, '');
+            let cleanTo = to; if (cleanTo.toLowerCase() !== 'shift') cleanTo = cleanTo.replace(/f/gi, '');
+            
+            const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
+            const isShiftChg = typeRaw.toLowerCase().includes('shift chg'); const isApproved = status.toLowerCase().includes('approved');
+            const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
+            if (isApproved && isShiftChg) return; if (isApproved && isLeave && cleanFrom.toLowerCase() === 'shift') return;
+
+            if (isPendingOrDenied) {
+                // Determine details string
+                let details = '';
+                if (isShiftChg) { 
+                    if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; 
+                } else { 
+                    if (cleanFrom.toLowerCase() !== 'shift') details = `(${cleanFrom}-${cleanTo})`; 
+                }
+                
+                requests.push({
+                    cpc: cpc,
+                    type: typeRaw,
+                    details: details,
+                    status: status,
+                    isShiftChg: isShiftChg,
+                    cleanFrom: cleanFrom,
+                    cleanTo: cleanTo
+                });
             }
         });
-        processBuffer();
-        saveData();
-        closeModal('pasteModal');
-        document.getElementById('pasteInput').value = '';
+        
+        saveRequests();
+        renderRequests();
+        closeModal('requestModal'); 
+        document.getElementById('requestInput').value = '';
+    }
+
+    function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr) {
+        // Find if this is a toggle-off event
+        let idx = shifts.findIndex(s => s.name === cpc);
+        if (li.classList.contains('active-preview')) {
+            if (previewBackups.has(cpc)) { shifts[idx] = previewBackups.get(cpc); previewBackups.delete(cpc); } 
+            else if (idx !== -1 && shifts[idx]._isNewPreview) { shifts.splice(idx, 1); }
+            li.classList.remove('active-preview'); render();
+        } else {
+            if (idx === -1) {
+                if (!toStr) { alert('Cannot create new shift: No time provided.'); return; }
+                let p = parseShiftStringForPreview(toStr);
+                if (!p) { alert('Cannot create new shift: Invalid time ' + toStr); return; }
+                addShift(cpc, p.start, p.end, 'standard', false);
+                idx = shifts.length - 1; shifts[idx]._isNewPreview = true;
+            } else { previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); }
+            li.classList.add('active-preview'); const s = shifts[idx]; s._previewing = true; 
+            
+            let isFullLeave = (!isShiftChange && fromStr.toLowerCase() === 'shift');
+
+            if (isShiftChange) { let p = parseShiftStringForPreview(toStr); if (p) { s.start = p.start; s.end = p.end; } } 
+            else { if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } }
+            
+            render(); 
+            
+            setTimeout(() => { 
+                const current = shifts.find(item => item.name === cpc);
+                if(current) {
+                    delete current._previewing;
+                    if(isFullLeave) current._hidden = true; // HIDE full leave
+                    render();
+                }
+            }, 5000);
+        }
+    }
+
+    function parseShiftStringForPreview(str) {
+        if (!str) return null;
+        let clean = str.replace('f','');
+        let parts = clean.split('-');
+        let start = normalizeTime(parts[0]);
+        let end = '';
+        if (parts.length > 1) { 
+            let p2 = parts[1].trim();
+            // 1-2 digits = Duration (Hours)
+            if (p2.length <= 2) {
+                let durHours = parseInt(p2);
+                let h = parseInt(start.substring(0,2));
+                let m = parseInt(start.substring(3,5));
+                let endH = (h + durHours) % 24;
+                end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+            } else {
+                end = normalizeTime(p2); // 3+ digits = Time
+            }
+        } 
+        else {
+            let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
+            let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+        }
+        return { start, end };
     }
 
     function addShift(name, start, end, type, isCic) {
         if (!name) return;
-        shifts.push({ name, start, end, type, isCic, notes: '' });
+        shifts.push({ name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' });
     }
 
-    // --- MODALS ---
+    // Modals & Utils
     function openPasteModal() { document.getElementById('pasteModal').style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function openEditModal(index) {
-        const s = shifts[index];
-        document.getElementById('editId').value = index;
-        document.getElementById('editName').value = s.name;
-        document.getElementById('editType').value = s.type || 'standard';
-        document.getElementById('editStart').value = s.start;
-        document.getElementById('editEnd').value = s.end;
-        document.getElementById('editNotes').value = s.notes || '';
+        const s = shifts[index]; document.getElementById('editId').value = index; document.getElementById('editName').value = s.name;
+        document.getElementById('editStart').value = s.start.replace(':', ''); document.getElementById('editEnd').value = s.end.replace(':', '');
+        document.getElementById('editNotes').value = s.notes || ''; document.getElementById('editStaffing').checked = s.isStaffing || false;
+        let leaveVal = ''; if(s.leaveStart && s.leaveEnd) leaveVal = `${s.leaveStart.replace(':','')}-${s.leaveEnd.replace(':','')}`;
+        document.getElementById('editLeaveRange').value = leaveVal;
+        let tosVal = ''; if(s.tosStart && s.tosEnd) tosVal = `${s.tosStart.replace(':','')}-${s.tosEnd.replace(':','')}`;
+        document.getElementById('editTosRange').value = tosVal;
+        const isTrainee = s.type === 'trainee' || trainees.includes(s.name);
+        const wrapper = document.getElementById('staffingCheckboxWrapper'); const trainerWrapper = document.getElementById('trainerSelectWrapper'); const trainerSelect = document.getElementById('editAssignedTrainer');
+        if (isTrainee) {
+            wrapper.style.display = 'flex'; trainerWrapper.style.display = 'block'; trainerSelect.innerHTML = '<option value="">-- No Trainer --</option>';
+            trainers.forEach(t => { const opt = document.createElement('option'); opt.value = t; opt.innerText = t; if(s.assignedTrainer === t) opt.selected = true; trainerSelect.appendChild(opt); });
+        } else { wrapper.style.display = 'none'; trainerWrapper.style.display = 'none'; }
         document.getElementById('editModal').style.display = 'flex';
     }
+    function clearInput(id) { document.getElementById(id).value = ''; }
     function saveEdit() {
         const idx = document.getElementById('editId').value;
         if (idx !== '') {
+            const leaveRange = parseRangeStr(document.getElementById('editLeaveRange').value); const tosRange = parseRangeStr(document.getElementById('editTosRange').value);
             shifts[idx] = {
-                name: document.getElementById('editName').value,
-                start: document.getElementById('editStart').value,
-                end: document.getElementById('editEnd').value,
-                type: document.getElementById('editType').value,
-                isCic: shifts[idx].isCic,
-                notes: document.getElementById('editNotes').value
+                ...shifts[idx], start: normalizeTime(document.getElementById('editStart').value), end: normalizeTime(document.getElementById('editEnd').value),
+                notes: document.getElementById('editNotes').value, leaveStart: leaveRange.start, leaveEnd: leaveRange.end, tosStart: tosRange.start, tosEnd: tosRange.end,
+                isStaffing: document.getElementById('editStaffing').checked, assignedTrainer: document.getElementById('editAssignedTrainer').value
             };
-            saveData();
-            closeModal('editModal');
+            saveData(); closeModal('editModal');
         }
     }
     window.onclick = function(e) { if (e.target.classList.contains('modal-overlay')) e.target.style.display = "none"; }
