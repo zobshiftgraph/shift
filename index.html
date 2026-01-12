@@ -99,6 +99,10 @@
             font-size: 0.75rem; font-weight: bold; color: #3b82f6; border-right: 1px dashed #eee;
         }
 
+        /* SHADING CLASSES */
+        .count-good { background-color: #86efac !important; color: #14532d !important; } /* Light Green */
+        .count-bad { background-color: #fca5a5 !important; color: #7f1d1d !important; } /* Light Red */
+
         .graph-body { flex: 1; position: relative; display: flex; flex-direction: column; justify-content: flex-start; overflow-y: hidden; }
 
         .grid-lines { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
@@ -145,24 +149,10 @@
             border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
         }
 
-        /* Updated Text Container for better centering */
         .bar-text-container {
-            position: absolute; /* Fixed relative to the bar segment */
-            top: 0;
-            height: 100%;
-            z-index: 8; 
-            display: flex;
-            align-items: center; /* Vertically Center */
-            justify-content: center; /* Horizontally Center */
-            gap: 5px; 
-            text-shadow: 0 1px 3px rgba(0,0,0,0.7); 
-            white-space: nowrap; 
-            overflow: hidden;
-            text-overflow: ellipsis; 
-            max-width: 100%;
-            /* If no inline style width is provided, it defaults to full width of parent */
-            width: 100%; 
-            left: 0;
+            position: absolute; top: 0; height: 100%; z-index: 8; display: flex; align-items: center; justify-content: center;
+            gap: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 100%; width: 100%; left: 0;
         }
         .bar-initials { font-weight: 900; font-size: 0.85rem; letter-spacing: 0.5px; }
         .bar-times { font-weight: 500; font-size: 0.7rem; opacity: 0.95; }
@@ -633,8 +623,13 @@
                 if (s._hidden) return; // SKIP if hidden
 
                 let meta = calculateShiftMeta(s); let overlap = getOverlap(meta.start, meta.end, hourStart, hourEnd); if (overlap <= 0) return;
-                let isTrainee = s.type === 'trainee' || trainees.includes(s.name); if (s.isStaffing) isTrainee = false;
-                if (!isTrainee && meta.end < 1110) { let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); if (yOverlap >= 30) return; }
+                
+                // --- TRAINEE LOGIC ---
+                let isTrainee = s.type === 'trainee' || trainees.includes(s.name); 
+                if (s.isStaffing) isTrainee = false; // Override check
+                if (isTrainee) return; // SKIP Trainees from count
+                
+                if (meta.end < 1110) { let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); if (yOverlap >= 30) return; }
                 
                 // Leave Logic
                 if (s.leaveStart && s.leaveEnd) {
@@ -647,7 +642,26 @@
 
                 count++;
             });
-            const el = document.getElementById('count-'+i); if(el) { el.innerText = count; el.style.color = count > 0 ? '#3b82f6' : '#ccc'; }
+            const el = document.getElementById('count-'+i);
+            if(el) {
+                el.innerText = count;
+                el.className = 'count-label';
+                el.style.backgroundColor = '';
+                el.style.color = count > 0 ? '#3b82f6' : '#ccc';
+
+                let [y, m, d] = currentDate.split('-').map(Number);
+                let day = new Date(y, m-1, d).getDay(); // 0=Sun, 6=Sat
+                let actualHour = (START_HOUR + i) % 24;
+
+                if (day !== 6) { // Sun-Fri
+                    if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
+                } else { // Saturday
+                    if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
+                }
+            }
         }
     }
 
@@ -685,6 +699,11 @@
             } else { dataBuffer.push(line); }
         });
         processBuffer(); saveData(); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+    }
+
+    function openPasteModal() { 
+        document.getElementById('pasteModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('pasteInput').focus(), 50);
     }
 
     function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
@@ -802,7 +821,6 @@
     }
 
     // Modals & Utils
-    function openPasteModal() { document.getElementById('pasteModal').style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function openEditModal(index) {
         const s = shifts[index]; document.getElementById('editId').value = index; document.getElementById('editName').value = s.name;
