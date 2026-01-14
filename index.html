@@ -67,6 +67,7 @@
             font-size: 0.9rem;
         }
         button:hover { opacity: 0.9; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         button.secondary { background-color: #6b7280; }
         button.action-btn { background-color: #0d9488; } 
 
@@ -102,6 +103,7 @@
         /* SHADING CLASSES */
         .count-good { background-color: #86efac !important; color: #14532d !important; } /* Light Green */
         .count-bad { background-color: #fca5a5 !important; color: #7f1d1d !important; } /* Light Red */
+        .count-warning { background-color: #fef08a !important; color: #854d0e !important; } /* Light Yellow */
 
         .graph-body { flex: 1; position: relative; display: flex; flex-direction: column; justify-content: flex-start; overflow-y: hidden; }
 
@@ -178,6 +180,10 @@
         .employee-card.trainee-card { background-color: #f3e8ff; border-color: #d8b4fe; }
         .employee-card:hover { background-color: #f9fafb; }
 
+        /* ACTIVE / OVER STATUS CLASSES */
+        .card-active { background-color: #dcfce7 !important; border-left: 4px solid #22c55e !important; }
+        .card-over { background-color: #f3f4f6 !important; opacity: 0.6; color: #666; }
+        
         .emp-info { display: flex; flex-direction: column; overflow: hidden; width: 65%; }
         .emp-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .emp-time { font-size: 0.75rem; color: #666; }
@@ -193,6 +199,13 @@
         .btn-icon { padding: 4px 8px; font-size: 0.75rem; margin-left: 2px; border-radius: 3px; border:none; color:white; cursor:pointer;}
         .btn-edit { background-color: #f59e0b; }
         .btn-del { background-color: var(--danger-color); }
+
+        /* Dropdown style in card */
+        .trainer-dropdown {
+            margin-top: 4px; padding: 2px; font-size: 0.75rem;
+            border: 1px solid #d8b4fe; border-radius: 4px; background: #fff;
+            width: 100%; max-width: 100%; cursor: pointer;
+        }
 
         .pending-container {
             border-top: 2px solid #ccc; background-color: #fafafa; padding: 0;
@@ -267,6 +280,10 @@
         </div>
     </div>
     <h2>Shift Visualizer</h2>
+    
+    <button onclick="undo()" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button onclick="redo()" id="btnRedo" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
+    
     <input type="date" id="datePicker">
     <button onclick="openPasteModal()">Paste Schedule</button>
     <button class="action-btn" onclick="openRequestModal()">Paste Requests</button>
@@ -361,25 +378,63 @@
     let shifts = [];
     let requests = []; 
     let previewBackups = new Map(); 
+    let previewTimers = new Map(); 
     let trainers = JSON.parse(localStorage.getItem('app_trainers')) || [];
     let trainees = JSON.parse(localStorage.getItem('app_trainees')) || [];
     let currentManageType = ''; 
+
+    // --- UNDO/REDO STATE ---
+    let undoStack = [];
+    let redoStack = [];
+    const MAX_HISTORY = 50;
+
+    function pushHistory() {
+        const state = JSON.stringify(shifts);
+        undoStack.push(state);
+        if (undoStack.length > MAX_HISTORY) undoStack.shift();
+        redoStack = []; 
+        updateUndoRedoButtons();
+    }
+
+    function undo() {
+        if (undoStack.length === 0) return;
+        const current = JSON.stringify(shifts);
+        redoStack.push(current);
+        const prev = undoStack.pop();
+        shifts = JSON.parse(prev);
+        saveData(false); 
+        updateUndoRedoButtons();
+    }
+
+    function redo() {
+        if (redoStack.length === 0) return;
+        const current = JSON.stringify(shifts);
+        undoStack.push(current);
+        const next = redoStack.pop();
+        shifts = JSON.parse(next);
+        saveData(false); 
+        updateUndoRedoButtons();
+    }
+
+    function updateUndoRedoButtons() {
+        document.getElementById('btnUndo').disabled = undoStack.length === 0;
+        document.getElementById('btnRedo').disabled = redoStack.length === 0;
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); }
+    });
 
     document.addEventListener('DOMContentLoaded', () => {
         const dateInput = document.getElementById('datePicker');
         dateInput.value = currentDate;
         dateInput.addEventListener('change', (e) => { 
             currentDate = e.target.value; 
-            loadData(); 
-            loadRequests(); 
-            updateCurrentTime(); 
+            undoStack = []; redoStack = []; updateUndoRedoButtons();
+            loadData(); loadRequests(); updateCurrentTime(); 
         });
-        generateTimeline(); 
-        loadData(); 
-        loadRequests();
-        updateCurrentTime(); 
-        setInterval(updateCurrentTime, 60000);
-        
+        generateTimeline(); loadData(); loadRequests(); updateCurrentTime(); setInterval(updateCurrentTime, 60000);
         document.addEventListener('click', (e) => { if (!e.target.closest('.menu-container')) document.getElementById('menuDropdown').style.display = 'none'; });
         document.getElementById('manageInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addListItem(); });
     });
@@ -484,6 +539,8 @@
             const label = document.createElement('div'); label.className = 'time-label'; label.innerText = labelText; label.style.left = pct + '%'; header.appendChild(label);
         }
     }
+    
+    // --- UPDATED TIME & STATUS LOGIC ---
     function updateCurrentTime() {
         const now = new Date(); const line = document.getElementById('currentTimeLine');
         const pickerValue = document.getElementById('datePicker').value; if (!pickerValue) return;
@@ -494,6 +551,42 @@
             const pct = ((now - startBoundary) / (endBoundary - startBoundary)) * 100;
             line.style.left = pct + '%'; line.style.display = 'block';
         } else { line.style.display = 'none'; }
+        
+        // Also update Employee Status Colors
+        updateEmployeeStatuses(now, startBoundary, endBoundary);
+    }
+
+    function updateEmployeeStatuses(now, startBoundary, endBoundary) {
+        let currentOffset = -1;
+        if (now >= startBoundary && now < endBoundary) {
+            currentOffset = (now - startBoundary) / 1000 / 60; // Minutes since start
+        } else if (now > endBoundary) {
+            currentOffset = 9999; // Past
+        } else {
+            currentOffset = -1; // Future
+        }
+
+        shifts.forEach((s, idx) => {
+            const card = document.getElementById(`emp-card-${idx}`);
+            if (!card) return;
+
+            card.classList.remove('card-active', 'card-over', 'card-future');
+
+            if (currentOffset === 9999) {
+                card.classList.add('card-over'); // Whole day is past
+                return;
+            }
+            if (currentOffset === -1) {
+                return; // Default style
+            }
+
+            const meta = calculateShiftMeta(s);
+            if (currentOffset >= meta.start && currentOffset < meta.end) {
+                card.classList.add('card-active');
+            } else if (currentOffset >= meta.end) {
+                card.classList.add('card-over');
+            }
+        });
     }
 
     function timeToOffset(timeStr) {
@@ -610,38 +703,93 @@
             if (shift.tosStart && shift.tosEnd) extraTags += `<span class="tag-badge tag-tos">TOS ${shift.tosStart}-${shift.tosEnd}</span>`;
             let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
 
+            // --- TRAINER DROPDOWN GENERATION ---
+            let trainerSelectHtml = '';
+            if (isTrainee) {
+                trainerSelectHtml = `<select class="trainer-dropdown" onchange="quickAssignTrainer(${index}, this.value)" onclick="event.stopPropagation()">`;
+                trainerSelectHtml += `<option value="">Assign Trainer...</option>`;
+                trainers.forEach(t => {
+                    const selected = shift.assignedTrainer === t ? 'selected' : '';
+                    trainerSelectHtml += `<option value="${t}" ${selected}>${t}</option>`;
+                });
+                trainerSelectHtml += `</select>`;
+            }
+
             const card = document.createElement('div'); card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
-            card.innerHTML = `<div class="emp-info"><div class="emp-name">${shift.name} ${shift.isCic ? '<span class="cic-tag">CIC</span>' : ''}</div><div class="emp-time">${shift.start} - ${shift.end} (${durationHours}h)</div>${notesHtml}${extraTags ? `<div class="tag-row">${extraTags}</div>` : ''}</div><div class="emp-actions"><button class="btn-icon btn-edit" onclick="openEditModal(${index})">Edit</button><button class="btn-icon btn-del" onclick="deleteShift(${index})">X</button></div>`;
+            card.id = `emp-card-${index}`; // Add ID for real-time updates
+            
+            card.innerHTML = `
+                <div class="emp-info">
+                    <div class="emp-name">${shift.name} ${shift.isCic ? '<span class="cic-tag">CIC</span>' : ''}</div>
+                    <div class="emp-time">${shift.start} - ${shift.end} (${durationHours}h)</div>
+                    ${trainerSelectHtml}
+                    ${notesHtml}${extraTags ? `<div class="tag-row">${extraTags}</div>` : ''}
+                </div>
+                <div class="emp-actions">
+                    <button class="btn-icon btn-edit" onclick="openEditModal(${index})">Edit</button>
+                    <button class="btn-icon btn-del" onclick="deleteShift(${index})">X</button>
+                </div>
+            `;
             listBody.appendChild(card);
         });
         updateStaffCounts();
     }
+
+    function quickAssignTrainer(index, trainerName) {
+        pushHistory();
+        shifts[index].assignedTrainer = trainerName;
+        saveData(false);
+        render(); // Re-render to update grouping/sorting in the visualizer
+    }
+
     function updateStaffCounts() {
         for(let i=0; i<24; i++) {
             let hourStart = i * 60; let hourEnd = hourStart + 60; let count = 0;
             shifts.forEach(s => {
                 if (s._hidden) return; // SKIP if hidden
 
-                let meta = calculateShiftMeta(s); let overlap = getOverlap(meta.start, meta.end, hourStart, hourEnd); if (overlap <= 0) return;
-                
-                // --- TRAINEE LOGIC ---
+                let meta = calculateShiftMeta(s); let overlap = getOverlap(meta.start, meta.end, hourStart, hourEnd); 
+                let contributes = false;
+
+                // 1. Check Main Shift
                 let isTrainee = s.type === 'trainee' || trainees.includes(s.name); 
-                if (s.isStaffing) isTrainee = false; // Override check
-                if (isTrainee) return; // SKIP Trainees from count
-                
-                if (meta.end < 1110) { let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); if (yOverlap >= 30) return; }
-                
-                // Leave Logic
-                if (s.leaveStart && s.leaveEnd) {
-                    const ls = timeToOffset(s.leaveStart);
-                    const le = timeToOffset(s.leaveEnd);
-                    let dur = le - ls; if (dur < 0) dur += (24*60);
-                    let leaveOverlap = getOverlap(ls, ls+dur, hourStart, hourEnd);
-                    if (leaveOverlap >= 30) return; 
+                if (s.isStaffing) isTrainee = false;
+
+                if (!isTrainee) {
+                    if (overlap > 0) {
+                        let validMain = true;
+
+                        // Check Leave
+                        if (s.leaveStart && s.leaveEnd) {
+                            const ls = timeToOffset(s.leaveStart);
+                            const le = timeToOffset(s.leaveEnd);
+                            let dur = le - ls; if (dur < 0) dur += (24*60);
+                            if (getOverlap(ls, ls+dur, hourStart, hourEnd) >= 30) validMain = false;
+                        }
+
+                        // Check Early End Rule (Yellow Bar)
+                        if (validMain && meta.end < 1110 && hourStart < 960) { 
+                            let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); 
+                            if (yOverlap >= 30) validMain = false; 
+                        }
+
+                        if (validMain) contributes = true;
+                    }
                 }
 
-                count++;
+                // 2. Check TOS (Green Bar)
+                if (s.tosStart && s.tosEnd) {
+                    const ts = timeToOffset(s.tosStart);
+                    const te = timeToOffset(s.tosEnd);
+                    let dur = te - ts; if (dur < 0) dur += (24*60);
+                    if (getOverlap(ts, ts+dur, hourStart, hourEnd) > 0) {
+                        contributes = true;
+                    }
+                }
+
+                if (contributes) count++;
             });
+            
             const el = document.getElementById('count-'+i);
             if(el) {
                 el.innerText = count;
@@ -654,21 +802,57 @@
                 let actualHour = (START_HOUR + i) % 24;
 
                 if (day !== 6) { // Sun-Fri
-                    if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
-                    else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
-                    else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
-                    else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
+                    if (actualHour === 6) {
+                        if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good');
+                    }
+                    else if (actualHour >= 7 && actualHour < 20) {
+                        if (count === 6) el.classList.add('count-warning');
+                        else if (count <= 5) el.classList.add('count-bad');
+                    }
+                    else if (actualHour === 20) {
+                        if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good');
+                    }
+                    else if (actualHour === 21) {
+                        if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good');
+                    }
+                    else if (actualHour === 22) {
+                        if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good');
+                    }
                 } else { // Saturday
-                    if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
+                    if (actualHour >= 7 && actualHour < 20) {
+                         if (count === 6) el.classList.add('count-warning');
+                         else if (count <= 5) el.classList.add('count-bad');
+                    }
+                    else if (actualHour === 21) {
+                        if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good');
+                    }
+                    // 0600, 2000, 2200 are explicitly ignored here for Saturday
                 }
             }
         }
     }
 
     function loadData() { const stored = localStorage.getItem('shifts_' + currentDate); shifts = stored ? JSON.parse(stored) : []; render(); }
-    function saveData() { localStorage.setItem('shifts_' + currentDate, JSON.stringify(shifts)); render(); }
-    function deleteShift(index) { if(confirm('Delete?')) { shifts.splice(index, 1); saveData(); } }
-    function clearData() { if(confirm('Clear all?')) { shifts = []; saveData(); } }
+    
+    function saveData(pushHist = true) { 
+        if (pushHist) pushHistory();
+        localStorage.setItem('shifts_' + currentDate, JSON.stringify(shifts)); 
+        render(); 
+    }
+    
+    function deleteShift(index) { if(confirm('Delete?')) { pushHistory(); shifts.splice(index, 1); saveData(false); } }
+    
+    function clearData() {
+        if(confirm('Clear all data for this day?')) {
+            pushHistory(); 
+            shifts = [];
+            saveData(false);
+
+            requests = [];
+            saveRequests();
+            renderRequests();
+        }
+    }
 
     function processPaste() {
         let text = document.getElementById('pasteInput').value; text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
@@ -688,6 +872,7 @@
             if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'standard', false); });
             if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'trainee', false); });
         }
+        pushHistory(); 
         lines.forEach(line => {
             const match = line.match(shiftRegex);
             if (match) {
@@ -698,7 +883,7 @@
                 currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, isCic: isCicHeader };
             } else { dataBuffer.push(line); }
         });
-        processBuffer(); saveData(); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+        processBuffer(); saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
     }
 
     function openPasteModal() { 
@@ -711,21 +896,85 @@
     function processRequests() {
         const text = document.getElementById('requestInput').value; 
         const lines = text.split(/\n/);
+        let changesMade = false;
         
+        let snapshotNeeded = false;
+
         lines.forEach(line => {
             if (!line.trim()) return;
-            let cols = line.split(/\t/); if (cols.length < 5) cols = line.split(/\s{2,}/); if (cols.length < 5) cols = line.split(/\s+/);
-            if (cols.length < 6) return; if (cols[0].toUpperCase() === 'CPC' && cols[1].toUpperCase().includes('TYPE')) return;
-            const cpc = cols[0].trim(); const typeRaw = cols[1].trim(); let from = cols[2].trim(); let to = cols[3].trim(); const status = cols[5].trim();
+            
+            // --- UPDATED COLUMN HANDLING START ---
+            let cols = line.split(/\t/);
+            if (cols.length < 5) cols = line.split(/\s{2,}/);
+            if (cols.length < 5) cols = line.split(/\s+/);
+
+            // Find status index dynamically
+            let statusIndex = -1;
+            for (let i = 4; i < cols.length; i++) {
+                if (cols[i] && /Approved|Pending|Denied/i.test(cols[i])) {
+                    statusIndex = i;
+                    break;
+                }
+            }
+            if (statusIndex === -1) return; // Skip invalid lines
+
+            const cpc = cols[0].trim();
+            const status = cols[statusIndex].trim();
+            
+            // TYPE, FROM, TO logic with "Shift Chg" fix
+            let typeRaw = cols[1].trim();
+            let from, to;
+            
+            if (cols[1] === 'Shift' && cols[2] === 'Chg') {
+                typeRaw = "Shift Chg";
+                from = cols[3] ? cols[3].trim() : '';
+                to = cols[4] ? cols[4].trim() : '';
+            } else {
+                from = cols[2] ? cols[2].trim() : '';
+                to = cols[3] ? cols[3].trim() : '';
+            }
+            // --- UPDATED COLUMN HANDLING END ---
             
             let cleanFrom = from; if (cleanFrom.toLowerCase() !== 'shift') cleanFrom = cleanFrom.replace(/f/gi, '');
             let cleanTo = to; if (cleanTo.toLowerCase() !== 'shift') cleanTo = cleanTo.replace(/f/gi, '');
             
             const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
-            const isShiftChg = typeRaw.toLowerCase().includes('shift chg'); const isApproved = status.toLowerCase().includes('approved');
+            const isShiftChg = typeRaw.toLowerCase().includes('shift chg'); 
+            const isApproved = status.toLowerCase().includes('approved');
             const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
-            if (isApproved && isShiftChg) return; if (isApproved && isLeave && cleanFrom.toLowerCase() === 'shift') return;
+            
+            // 1. APPROVED -> Update Graph
+            if (isApproved) {
+                const idx = shifts.findIndex(s => s.name === cpc);
+                if (idx !== -1) {
+                    if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } // save once
+                    
+                    if (isShiftChg && cleanTo.toUpperCase() === 'X') {
+                        shifts.splice(idx, 1);
+                        changesMade = true;
+                        return;
+                    }
 
+                    if (isLeave) {
+                        if (cleanFrom.toLowerCase() !== 'shift') {
+                            shifts[idx].leaveStart = normalizeTime(cleanFrom);
+                            shifts[idx].leaveEnd = normalizeTime(cleanTo);
+                            changesMade = true;
+                        }
+                    } else if (isShiftChg) {
+                        let p = parseShiftStringForPreview(cleanTo); 
+                        if (p) {
+                            shifts[idx].start = p.start;
+                            shifts[idx].end = p.end;
+                            if (p.isCic) shifts[idx].isCic = true;
+                            changesMade = true;
+                        }
+                    }
+                }
+                return; 
+            }
+
+            // 2. PENDING/DENIED -> Add to List
             if (isPendingOrDenied) {
                 let details = '';
                 if (isShiftChg) { 
@@ -748,53 +997,95 @@
         
         saveRequests();
         renderRequests();
+        if (changesMade) {
+            saveData(false); // already pushed history
+            render();
+        }
         closeModal('requestModal'); 
         document.getElementById('requestInput').value = '';
     }
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr) {
         let idx = shifts.findIndex(s => s.name === cpc);
+        
+        // 1. CLEAR EXISTING TIMER IF ANY (This fixes the race condition)
+        if (previewTimers.has(cpc)) {
+            clearTimeout(previewTimers.get(cpc));
+            previewTimers.delete(cpc);
+        }
+
+        // 2. CHECK IF CURRENTLY ACTIVE
         if (li.classList.contains('active-preview')) {
-            if (previewBackups.has(cpc)) { shifts[idx] = previewBackups.get(cpc); previewBackups.delete(cpc); } 
-            else if (idx !== -1 && shifts[idx]._isNewPreview) { shifts.splice(idx, 1); }
-            li.classList.remove('active-preview'); render();
+            // -- REVERT CHANGES --
+            if (previewBackups.has(cpc)) { 
+                if (idx !== -1) {
+                    shifts[idx] = previewBackups.get(cpc); // Restore object
+                } else {
+                    shifts.push(previewBackups.get(cpc)); // Restore removed object
+                }
+                previewBackups.delete(cpc); 
+            } 
+            else if (idx !== -1 && shifts[idx]._isNewPreview) { 
+                shifts.splice(idx, 1); // Delete new entry
+            }
+            li.classList.remove('active-preview'); 
+            render();
         } else {
+            // -- APPLY PREVIEW --
             if (idx === -1) {
                 if (!toStr) { alert('Cannot create new shift: No time provided.'); return; }
                 let p = parseShiftStringForPreview(toStr);
                 if (!p) { alert('Cannot create new shift: Invalid time ' + toStr); return; }
                 addShift(cpc, p.start, p.end, 'standard', false);
-                idx = shifts.length - 1; shifts[idx]._isNewPreview = true;
-            } else { previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); }
-            li.classList.add('active-preview'); const s = shifts[idx]; s._previewing = true; 
+                idx = shifts.length - 1; 
+                shifts[idx]._isNewPreview = true;
+            } else { 
+                previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); 
+            }
+            
+            li.classList.add('active-preview'); 
+            const s = shifts[idx]; 
+            s._previewing = true; 
             
             let isFullLeave = (!isShiftChange && fromStr.toLowerCase() === 'shift');
 
             if (isShiftChange) { 
-                let p = parseShiftStringForPreview(toStr); 
-                if (p) { 
-                    s.start = p.start; 
-                    s.end = p.end; 
-                    s.isCic = p.isCic;
-                } 
+                if (toStr.toUpperCase() === 'X') {
+                    s._hidden = true; 
+                } else {
+                    let p = parseShiftStringForPreview(toStr); 
+                    if (p) { 
+                        s.start = p.start; 
+                        s.end = p.end; 
+                        s.isCic = p.isCic;
+                    } 
+                }
             } 
             else { if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } }
             
             render(); 
             
-            setTimeout(() => { 
+            // 3. SET NEW TIMER
+            const timerId = setTimeout(() => { 
                 const current = shifts.find(item => item.name === cpc);
                 if(current) {
                     delete current._previewing;
                     if(isFullLeave) current._hidden = true; 
                     render();
                 }
+                previewTimers.delete(cpc); // Clean up map
             }, 5000);
+
+            previewTimers.set(cpc, timerId);
         }
     }
 
     function parseShiftStringForPreview(str) {
         if (!str) return null;
+        
+        // Handle T prefix
+        if (/^[tT]/.test(str)) str = str.substring(1);
+
         let isCic = false;
         if (/^[cC]/.test(str)) { isCic = true; str = str.substring(1); }
         let clean = str.replace(/f/gi, '');
@@ -840,6 +1131,7 @@
     }
     function clearInput(id) { document.getElementById(id).value = ''; }
     function saveEdit() {
+        pushHistory();
         const idx = document.getElementById('editId').value;
         if (idx !== '') {
             const leaveRange = parseRangeStr(document.getElementById('editLeaveRange').value); const tosRange = parseRangeStr(document.getElementById('editTosRange').value);
@@ -848,7 +1140,7 @@
                 notes: document.getElementById('editNotes').value, leaveStart: leaveRange.start, leaveEnd: leaveRange.end, tosStart: tosRange.start, tosEnd: tosRange.end,
                 isStaffing: document.getElementById('editStaffing').checked, assignedTrainer: document.getElementById('editAssignedTrainer').value
             };
-            saveData(); closeModal('editModal');
+            saveData(false); closeModal('editModal');
         }
     }
     window.onclick = function(e) { if (e.target.classList.contains('modal-overlay')) e.target.style.display = "none"; }
