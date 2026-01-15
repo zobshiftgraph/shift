@@ -92,7 +92,7 @@
         }
 
         .timeline-header { height: 40px; position: relative; border-bottom: 1px solid #ccc; background: #f9fafb; flex-shrink: 0; }
-        .time-label { position: absolute; bottom: 5px; font-size: 0.75rem; transform: translateX(-50%); color: #666; }
+        .time-label { position: absolute; bottom: 5px; font-size: 0.85rem; font-weight: bold; transform: translateX(-50%); color: #444; }
 
         .count-header { height: 25px; position: relative; border-bottom: 1px solid #ccc; background: #fff; flex-shrink: 0; }
         .count-label {
@@ -114,9 +114,13 @@
             position: absolute; top: 0; bottom: 0; width: 2px; background-color: var(--danger-color);
             z-index: 50; pointer-events: none; box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
         }
+        
+        /* UPDATED: Uses data-time attribute */
         .current-time-line::after {
-            content: "NOW"; position: absolute; top: 2px; left: 4px; font-size: 0.65rem;
+            content: attr(data-time); 
+            position: absolute; top: 2px; left: 4px; font-size: 0.65rem;
             background: var(--danger-color); color: white; padding: 1px 3px; border-radius: 2px;
+            white-space: nowrap;
         }
 
         .shift-row { position: relative; width: 100%; flex: 1; min-height: 0; display: flex; align-items: center; border-bottom: 1px solid #f3f4f6; }
@@ -547,10 +551,19 @@
         const [pYear, pMonth, pDay] = pickerValue.split('-').map(Number);
         const startBoundary = new Date(pYear, pMonth - 1, pDay, START_HOUR, 0, 0, 0);
         const endBoundary = new Date(startBoundary); endBoundary.setDate(endBoundary.getDate() + 1);
+        
+        // Update Time Line
         if (now >= startBoundary && now < endBoundary) {
             const pct = ((now - startBoundary) / (endBoundary - startBoundary)) * 100;
-            line.style.left = pct + '%'; line.style.display = 'block';
-        } else { line.style.display = 'none'; }
+            line.style.left = pct + '%'; 
+            line.style.display = 'block';
+            // Set dynamic time text
+            const h = String(now.getHours()).padStart(2, '0');
+            const m = String(now.getMinutes()).padStart(2, '0');
+            line.setAttribute('data-time', `${h}:${m}`);
+        } else { 
+            line.style.display = 'none'; 
+        }
         
         // Also update Employee Status Colors
         updateEmployeeStatuses(now, startBoundary, endBoundary);
@@ -1000,7 +1013,7 @@
                 return; 
             }
 
-            // 2. PENDING/DENIED -> Add to List
+            // 2. PENDING/DENIED -> Add to List (Duplicate Check)
             if (isPendingOrDenied) {
                 let details = '';
                 if (isShiftChg) { 
@@ -1009,7 +1022,8 @@
                     if (cleanFrom.toLowerCase() !== 'shift') details = `(${cleanFrom}-${cleanTo})`; 
                 }
                 
-                requests.push({
+                // --- DUPLICATE CHECK ---
+                const newReq = {
                     cpc: cpc,
                     type: typeRaw,
                     details: details,
@@ -1017,7 +1031,18 @@
                     isShiftChg: isShiftChg,
                     cleanFrom: cleanFrom,
                     cleanTo: cleanTo
-                });
+                };
+
+                const isDuplicate = requests.some(r => 
+                    r.cpc === newReq.cpc && 
+                    r.type === newReq.type && 
+                    r.details === newReq.details && 
+                    r.status === newReq.status
+                );
+
+                if (!isDuplicate) {
+                    requests.push(newReq);
+                }
             }
         });
         
