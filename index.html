@@ -697,18 +697,33 @@
                 if(tb) { tb.onclick = () => openEditModal(index); row.appendChild(tb); }
             }
             graphBody.appendChild(row);
+        });
+
+        // --- SEPARATE LOOP FOR EMPLOYEE LIST ---
+        // This ensures list order matches input order and doesn't jump when assigning trainers.
+        shifts.forEach((shift, index) => {
+            if (shift._hidden) return; 
+
+            let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name); if (shift.isStaffing) isTrainee = false;
+            let duration = calculateShiftMeta(shift).end - calculateShiftMeta(shift).start;
+            let durationHours = (duration / 60).toFixed(1).replace('.0', '');
 
             let extraTags = '';
             if (shift.leaveStart && shift.leaveEnd) extraTags += `<span class="tag-badge tag-leave">LV ${shift.leaveStart}-${shift.leaveEnd}</span>`;
             if (shift.tosStart && shift.tosEnd) extraTags += `<span class="tag-badge tag-tos">TOS ${shift.tosStart}-${shift.tosEnd}</span>`;
             let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
 
-            // --- TRAINER DROPDOWN GENERATION ---
+            // --- TRAINER DROPDOWN GENERATION (FILTERED) ---
             let trainerSelectHtml = '';
             if (isTrainee) {
+                const activeTrainers = trainers.filter(t => {
+                    const isOnShift = shifts.some(s => s.name === t && !s._hidden); 
+                    return isOnShift || t === shift.assignedTrainer;
+                });
+
                 trainerSelectHtml = `<select class="trainer-dropdown" onchange="quickAssignTrainer(${index}, this.value)" onclick="event.stopPropagation()">`;
                 trainerSelectHtml += `<option value="">Assign Trainer...</option>`;
-                trainers.forEach(t => {
+                activeTrainers.forEach(t => {
                     const selected = shift.assignedTrainer === t ? 'selected' : '';
                     trainerSelectHtml += `<option value="${t}" ${selected}>${t}</option>`;
                 });
@@ -733,6 +748,7 @@
             listBody.appendChild(card);
         });
         updateStaffCounts();
+        updateCurrentTime(); // Ensure status colors are correct immediately
     }
 
     function quickAssignTrainer(index, trainerName) {
@@ -802,31 +818,14 @@
                 let actualHour = (START_HOUR + i) % 24;
 
                 if (day !== 6) { // Sun-Fri
-                    if (actualHour === 6) {
-                        if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good');
-                    }
-                    else if (actualHour >= 7 && actualHour < 20) {
-                        if (count === 6) el.classList.add('count-warning');
-                        else if (count <= 5) el.classList.add('count-bad');
-                    }
-                    else if (actualHour === 20) {
-                        if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good');
-                    }
-                    else if (actualHour === 21) {
-                        if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good');
-                    }
-                    else if (actualHour === 22) {
-                        if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good');
-                    }
+                    if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
+                    else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
+                    else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
                 } else { // Saturday
-                    if (actualHour >= 7 && actualHour < 20) {
-                         if (count === 6) el.classList.add('count-warning');
-                         else if (count <= 5) el.classList.add('count-bad');
-                    }
-                    else if (actualHour === 21) {
-                        if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good');
-                    }
-                    // 0600, 2000, 2200 are explicitly ignored here for Saturday
+                    if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
+                    else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
                 }
             }
         }
@@ -866,11 +865,38 @@
                 names.forEach(n => {
                     if(!n) return; let isCic = currentShift.isCic; let cleanName = n;
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
-                    addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
+                    
+                    // Duplicate Check
+                    const existingIdx = shifts.findIndex(s => s.name === cleanName);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
+                        if (s.start !== currentShift.start || s.end !== currentShift.end) {
+                            s.start = currentShift.start; s.end = currentShift.end;
+                            s.isCic = (currentShift.isCic || s.isCic);
+                        }
+                    } else {
+                        addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
+                    }
                 });
             }
-            if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'standard', false); });
-            if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { if(n) addShift(n, currentShift.start, currentShift.end, 'trainee', false); });
+            if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
+                if(n) {
+                    const existingIdx = shifts.findIndex(s => s.name === n);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
+                        if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                    } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
+                }
+            });
+            if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
+                if(n) {
+                    const existingIdx = shifts.findIndex(s => s.name === n);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
+                        if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                    } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
+                }
+            });
         }
         pushHistory(); 
         lines.forEach(line => {
