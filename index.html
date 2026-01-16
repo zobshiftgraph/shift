@@ -92,7 +92,15 @@
         }
 
         .timeline-header { height: 40px; position: relative; border-bottom: 1px solid #ccc; background: #f9fafb; flex-shrink: 0; }
-        .time-label { position: absolute; bottom: 5px; font-size: 0.85rem; font-weight: bold; transform: translateX(-50%); color: #444; }
+        
+        .time-label { 
+            position: absolute; 
+            bottom: 5px; 
+            font-size: 0.75rem; 
+            font-weight: 500; 
+            transform: translateX(-50%); 
+            color: #555; 
+        }
 
         .count-header { height: 25px; position: relative; border-bottom: 1px solid #ccc; background: #fff; flex-shrink: 0; }
         .count-label {
@@ -114,8 +122,6 @@
             position: absolute; top: 0; bottom: 0; width: 2px; background-color: var(--danger-color);
             z-index: 50; pointer-events: none; box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
         }
-        
-        /* UPDATED: Uses data-time attribute */
         .current-time-line::after {
             content: attr(data-time); 
             position: absolute; top: 2px; left: 4px; font-size: 0.65rem;
@@ -132,6 +138,16 @@
         }
         .shift-bar { background-color: var(--bar-color); z-index: 5; position: absolute; }
         .shift-bar:hover { z-index: 10; background-color: var(--bar-hover); height: 85%; }
+        
+        /* NEW: Greyed out style for finished shifts on graph */
+        .shift-bar.bar-over {
+            background-color: #e5e7eb !important;
+            border-color: #d1d5db !important;
+            color: #888 !important;
+            opacity: 0.8;
+        }
+        .shift-bar.bar-over .last-hour-indicator { display: none; } /* Hide yellow warning if over */
+
         .shift-bar.trainee { background-color: var(--bar-trainee); border-color: #7e22ce; }
         .leave-bar { background-color: var(--bar-leave); z-index: 20; border-color: #6b7280; }
         .leave-bar:hover { z-index: 25; height: 85%; }
@@ -583,21 +599,31 @@
             const card = document.getElementById(`emp-card-${idx}`);
             if (!card) return;
 
+            // Remove all possible status classes first
             card.classList.remove('card-active', 'card-over', 'card-future');
+            
+            const bar = document.getElementById(`shift-bar-${idx}`);
+            if (bar) bar.classList.remove('bar-over');
 
             if (currentOffset === 9999) {
-                card.classList.add('card-over'); // Whole day is past
+                // Entire day is over
+                card.classList.add('card-over');
+                if (bar) bar.classList.add('bar-over');
                 return;
             }
             if (currentOffset === -1) {
-                return; // Default style
+                // Future date
+                return; 
             }
 
             const meta = calculateShiftMeta(s);
             if (currentOffset >= meta.start && currentOffset < meta.end) {
+                // Active now
                 card.classList.add('card-active');
             } else if (currentOffset >= meta.end) {
+                // Shift finished
                 card.classList.add('card-over');
+                if (bar) bar.classList.add('bar-over');
             }
         });
     }
@@ -682,6 +708,7 @@
             let timeLabel = `${shift.start}-${shift.end} ${durationHours}h`;
 
             const mainBar = document.createElement('div'); mainBar.className = `bar-segment shift-bar ${isTrainee ? 'trainee' : ''}`;
+            mainBar.id = `shift-bar-${index}`; // Unique ID for shading
             if (shift._previewing) mainBar.classList.add('preview-highlight');
             mainBar.style.left = `${barLeftPct}%`; mainBar.style.width = `${barWidthPct}%`;
             mainBar.onclick = () => openEditModal(index); mainBar.title = `${displayName} ${timeLabel}`;
