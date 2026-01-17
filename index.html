@@ -275,6 +275,14 @@
             width: 20px; height: 20px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer;
         }
         .btn-clear:hover { background: #d1d5db; }
+        
+        /* Modal Tag Previews */
+        .modal-tag-container { min-height: 24px; margin-top: 6px; }
+        .modal-tag { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; gap: 5px; margin-right: 5px;}
+        .modal-tag.leave { background: #f3f4f6; color: #4b5563; border: 1px solid #d1d5db; }
+        .modal-tag.tos { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .tag-remove { cursor: pointer; font-weight: 900; color: inherit; opacity: 0.6; font-size: 0.9rem;}
+        .tag-remove:hover { opacity: 1; }
 
         .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
 
@@ -377,10 +385,27 @@
             <div class="form-group"><label>Duration (Hours)</label><input type="number" id="editDuration" placeholder="8" step="0.25"></div>
         </div>
         <div class="form-group"><label>Notes</label><div class="input-wrapper"><input type="text" id="editNotes" placeholder="Shift notes..."><button class="btn-clear" onclick="clearInput('editNotes')" title="Clear">✕</button></div></div>
+        
         <div class="section-title">Leave (Grey)</div>
-        <div class="form-group"><label>Range (e.g. 1300-1400)</label><div class="input-wrapper"><input type="text" id="editLeaveRange" placeholder="HHMM-HHMM"><button class="btn-clear" onclick="clearInput('editLeaveRange')" title="Clear">✕</button></div></div>
+        <div class="form-group">
+            <label>Range (e.g. 1300-1400)</label>
+            <div class="input-wrapper">
+                <input type="text" id="editLeaveRange" placeholder="HHMM-HHMM" onkeydown="handleTagKey(event, 'leave')">
+                <button class="btn-clear" onclick="manualAddTag('leave')" title="Add Tag">＋</button>
+            </div>
+            <div id="previewLeave" class="modal-tag-container"></div>
+        </div>
+
         <div class="section-title">Time Outside Shift (Green)</div>
-        <div class="form-group"><label>Range (e.g. 0300-0400)</label><div class="input-wrapper"><input type="text" id="editTosRange" placeholder="HHMM-HHMM"><button class="btn-clear" onclick="clearInput('editTosRange')" title="Clear">✕</button></div></div>
+        <div class="form-group">
+            <label>Range (e.g. 0300-0400)</label>
+            <div class="input-wrapper">
+                <input type="text" id="editTosRange" placeholder="HHMM-HHMM" onkeydown="handleTagKey(event, 'tos')">
+                <button class="btn-clear" onclick="manualAddTag('tos')" title="Add Tag">＋</button>
+            </div>
+            <div id="previewTos" class="modal-tag-container"></div>
+        </div>
+
         <div class="modal-actions"><button class="secondary" onclick="closeModal('editModal')">Cancel</button><button onclick="saveEdit()">Save</button></div>
     </div>
 </div>
@@ -603,40 +628,34 @@
     function updateEmployeeStatuses(now, startBoundary, endBoundary) {
         let currentOffset = -1;
         if (now >= startBoundary && now < endBoundary) {
-            currentOffset = (now - startBoundary) / 1000 / 60; // Minutes since start
+            currentOffset = (now - startBoundary) / 1000 / 60; 
         } else if (now > endBoundary) {
-            currentOffset = 9999; // Past
+            currentOffset = 9999; 
         } else {
-            currentOffset = -1; // Future
+            currentOffset = -1; 
         }
 
         shifts.forEach((s, idx) => {
             const card = document.getElementById(`emp-card-${idx}`);
             if (!card) return;
 
-            // Remove all possible status classes first
             card.classList.remove('card-active', 'card-over', 'card-future');
-            
             const bar = document.getElementById(`shift-bar-${idx}`);
             if (bar) bar.classList.remove('bar-over');
 
             if (currentOffset === 9999) {
-                // Entire day is over
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
                 return;
             }
             if (currentOffset === -1) {
-                // Future date
                 return; 
             }
 
             const meta = calculateShiftMeta(s);
             if (currentOffset >= meta.start && currentOffset < meta.end) {
-                // Active now
                 card.classList.add('card-active');
             } else if (currentOffset >= meta.end) {
-                // Shift finished
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
             }
@@ -686,56 +705,29 @@
         return el;
     }
     function getSortedIndices() {
-        let sorted = []; 
-        let added = new Set(); 
-        let traineesByTrainer = {};
-
-        // 1. Map trainees to trainers
-        shifts.forEach((s, idx) => { 
-            if(s.assignedTrainer) { 
-                if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; 
-                traineesByTrainer[s.assignedTrainer].push(idx); 
-            } 
-        });
-
-        // 2. Create list of indices
+        let sorted = []; let added = new Set(); let traineesByTrainer = {};
+        shifts.forEach((s, idx) => { if(s.assignedTrainer) { if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; traineesByTrainer[s.assignedTrainer].push(idx); } });
         let indices = shifts.map((_, i) => i);
-
-        // 3. Sort indices by start time
         indices.sort((a, b) => {
             const startA = timeToOffset(shifts[a].start);
             const startB = timeToOffset(shifts[b].start);
             if (startA !== startB) return startA - startB;
-            // If start times are equal, sort alphabetically by name for consistency
             return shifts[a].name.localeCompare(shifts[b].name);
         });
 
-        // 4. Build sorted visual list (grouping logic)
         indices.forEach((idx) => {
-            if (added.has(idx)) return; // Already handled (was a trainee of previous)
-
+            if (added.has(idx)) return; 
             const s = shifts[idx];
+            if (s.assignedTrainer && shifts.some(p => p.name === s.assignedTrainer && !p._hidden)) { return; }
 
-            // If it is a trainee with a present trainer, skip (wait for trainer)
-            if (s.assignedTrainer && shifts.some(p => p.name === s.assignedTrainer && !p._hidden)) {
-                return;
-            }
+            sorted.push(idx); added.add(idx);
 
-            // Add the main shift (Trainer, Independent, or Orphaned Trainee)
-            sorted.push(idx);
-            added.add(idx);
-
-            // If this person is a trainer, add their trainees immediately
             if (traineesByTrainer[s.name]) {
                 traineesByTrainer[s.name].forEach(childIdx => {
-                    if (!added.has(childIdx)) {
-                        sorted.push(childIdx);
-                        added.add(childIdx);
-                    }
+                    if (!added.has(childIdx)) { sorted.push(childIdx); added.add(childIdx); }
                 });
             }
         });
-
         return sorted;
     }
 
@@ -767,7 +759,7 @@
             let timeLabel = `${shift.start}-${shift.end} ${durationHours}h`;
 
             const mainBar = document.createElement('div'); mainBar.className = `bar-segment shift-bar ${isTrainee ? 'trainee' : ''}`;
-            mainBar.id = `shift-bar-${index}`; // Unique ID for shading
+            mainBar.id = `shift-bar-${index}`; 
             if (shift._previewing) mainBar.classList.add('preview-highlight');
             mainBar.style.left = `${barLeftPct}%`; mainBar.style.width = `${barWidthPct}%`;
             mainBar.onclick = () => openEditModal(index); mainBar.title = `${displayName} ${timeLabel}`;
@@ -799,7 +791,6 @@
         });
 
         // --- SEPARATE LOOP FOR EMPLOYEE LIST ---
-        // This ensures list order matches input order and doesn't jump when assigning trainers.
         shifts.forEach((shift, index) => {
             if (shift._hidden) return; 
 
@@ -830,7 +821,7 @@
             }
 
             const card = document.createElement('div'); card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
-            card.id = `emp-card-${index}`; // Add ID for real-time updates
+            card.id = `emp-card-${index}`; 
             
             card.innerHTML = `
                 <div class="emp-info">
@@ -847,14 +838,14 @@
             listBody.appendChild(card);
         });
         updateStaffCounts();
-        updateCurrentTime(); // Ensure status colors are correct immediately
+        updateCurrentTime(); 
     }
 
     function quickAssignTrainer(index, trainerName) {
         pushHistory();
         shifts[index].assignedTrainer = trainerName;
         saveData(false);
-        render(); // Re-render to update grouping/sorting in the visualizer
+        render(); 
     }
 
     function updateStaffCounts() {
@@ -1243,8 +1234,6 @@
         const s = shifts[index]; document.getElementById('editId').value = index; document.getElementById('editName').value = s.name;
         document.getElementById('editStart').value = s.start.replace(':', ''); 
         
-        // Removed bad 'editEnd' reference
-        
         document.getElementById('editNotes').value = s.notes || ''; document.getElementById('editStaffing').checked = s.isStaffing || false;
         
         // Calculate Duration
@@ -1254,10 +1243,15 @@
         if (diff < 0) diff += 1440;
         document.getElementById('editDuration').value = Number((diff / 60).toFixed(2));
         
-        let leaveVal = ''; if(s.leaveStart && s.leaveEnd) leaveVal = `${s.leaveStart.replace(':','')}-${s.leaveEnd.replace(':','')}`;
-        document.getElementById('editLeaveRange').value = leaveVal;
-        let tosVal = ''; if(s.tosStart && s.tosEnd) tosVal = `${s.tosStart.replace(':','')}-${s.tosEnd.replace(':','')}`;
-        document.getElementById('editTosRange').value = tosVal;
+        // Render Tags from existing data
+        document.getElementById('editLeaveRange').value = ''; 
+        let leaveVal = (s.leaveStart && s.leaveEnd) ? `${s.leaveStart}-${s.leaveEnd}` : '';
+        if(leaveVal) addTag(leaveVal, 'leave', false); else document.getElementById('previewLeave').innerHTML = '';
+
+        document.getElementById('editTosRange').value = '';
+        let tosVal = (s.tosStart && s.tosEnd) ? `${s.tosStart}-${s.tosEnd}` : '';
+        if(tosVal) addTag(tosVal, 'tos', false); else document.getElementById('previewTos').innerHTML = '';
+
         const isTrainee = s.type === 'trainee' || trainees.includes(s.name);
         const wrapper = document.getElementById('staffingCheckboxWrapper'); const trainerWrapper = document.getElementById('trainerSelectWrapper'); const trainerSelect = document.getElementById('editAssignedTrainer');
         if (isTrainee) {
@@ -1266,7 +1260,56 @@
         } else { wrapper.style.display = 'none'; trainerWrapper.style.display = 'none'; }
         document.getElementById('editModal').style.display = 'flex';
     }
+    
+    // --- TAG LOGIC ---
+    function handleTagKey(event, type) {
+        if(event.key === 'Enter') {
+            manualAddTag(type);
+        }
+    }
+
+    function manualAddTag(type) {
+        const inputId = type === 'leave' ? 'editLeaveRange' : 'editTosRange';
+        const val = document.getElementById(inputId).value;
+        if(val.trim()) {
+            addTag(val, type, true);
+        }
+    }
+
+    function addTag(val, type, clearInputBox) {
+        // Validate format briefly (simple check)
+        const parts = val.split('-');
+        if(parts.length < 2) return; 
+
+        // Normalize
+        const p1 = normalizeTime(parts[0]);
+        const p2 = normalizeTime(parts[1]);
+        const finalVal = `${p1}-${p2}`;
+
+        const containerId = type === 'leave' ? 'previewLeave' : 'previewTos';
+        const container = document.getElementById(containerId);
+        
+        const className = type === 'leave' ? 'leave' : 'tos'; 
+        const label = type === 'leave' ? 'LV' : 'TOS';
+        
+        // Single tag enforcement: overwrite content
+        container.innerHTML = `<span class="modal-tag ${className}" data-range="${finalVal}">
+            ${label} ${finalVal}
+            <span class="tag-remove" onclick="removeTag('${containerId}')">✕</span>
+        </span>`;
+
+        if(clearInputBox) {
+            const inputId = type === 'leave' ? 'editLeaveRange' : 'editTosRange';
+            document.getElementById(inputId).value = '';
+        }
+    }
+
+    function removeTag(containerId) {
+        document.getElementById(containerId).innerHTML = '';
+    }
+
     function clearInput(id) { document.getElementById(id).value = ''; }
+    
     function saveEdit() {
         pushHistory();
         const idx = document.getElementById('editId').value;
@@ -1285,18 +1328,30 @@
             let em = Math.round(totalEnd % 60);
             let endVal = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
     
-            const leaveRange = parseRangeStr(document.getElementById('editLeaveRange').value); 
-            const tosRange = parseRangeStr(document.getElementById('editTosRange').value);
+            // READ FROM TAGS
+            let leaveStart = '', leaveEnd = '';
+            const leaveTag = document.querySelector('#previewLeave .modal-tag');
+            if(leaveTag) {
+                const parts = leaveTag.getAttribute('data-range').split('-');
+                leaveStart = parts[0]; leaveEnd = parts[1];
+            }
+
+            let tosStart = '', tosEnd = '';
+            const tosTag = document.querySelector('#previewTos .modal-tag');
+            if(tosTag) {
+                const parts = tosTag.getAttribute('data-range').split('-');
+                tosStart = parts[0]; tosEnd = parts[1];
+            }
             
             shifts[idx] = {
                 ...shifts[idx], 
                 start: startVal, 
                 end: endVal,
                 notes: document.getElementById('editNotes').value, 
-                leaveStart: leaveRange.start, 
-                leaveEnd: leaveRange.end, 
-                tosStart: tosRange.start, 
-                tosEnd: tosRange.end,
+                leaveStart: leaveStart, 
+                leaveEnd: leaveEnd, 
+                tosStart: tosStart, 
+                tosEnd: tosEnd,
                 isStaffing: document.getElementById('editStaffing').checked, 
                 assignedTrainer: document.getElementById('editAssignedTrainer').value
             };
