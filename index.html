@@ -303,7 +303,11 @@
     <button onclick="undo()" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button onclick="redo()" id="btnRedo" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     
-    <input type="date" id="datePicker">
+    <div class="date-nav">
+        <button class="nav-btn" onclick="changeDate(-1)" title="Previous Day">‹</button>
+        <input type="date" id="datePicker">
+        <button class="nav-btn" onclick="changeDate(1)" title="Next Day">›</button>
+    </div>
     <button onclick="openPasteModal()">Paste Schedule</button>
     <button class="action-btn" onclick="openRequestModal()">Paste Requests</button>
     <button class="secondary" onclick="clearData()">Clear Day</button>
@@ -370,7 +374,7 @@
         <div class="section-title">Main Shift</div>
         <div class="form-row">
             <div class="form-group"><label>Start (HHMM)</label><input type="text" id="editStart" placeholder="0600"></div>
-            <div class="form-group"><label>End (HHMM)</label><input type="text" id="editEnd" placeholder="1400"></div>
+            <div class="form-group"><label>Duration (Hours)</label><input type="number" id="editDuration" placeholder="8" step="0.25"></div>
         </div>
         <div class="form-group"><label>Notes</label><div class="input-wrapper"><input type="text" id="editNotes" placeholder="Shift notes..."><button class="btn-clear" onclick="clearInput('editNotes')" title="Clear">✕</button></div></div>
         <div class="section-title">Leave (Grey)</div>
@@ -457,6 +461,19 @@
         document.addEventListener('click', (e) => { if (!e.target.closest('.menu-container')) document.getElementById('menuDropdown').style.display = 'none'; });
         document.getElementById('manageInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addListItem(); });
     });
+
+    function changeDate(days) {
+        const dateInput = document.getElementById('datePicker');
+        if (!dateInput.value) return;
+        const parts = dateInput.value.split('-');
+        const current = new Date(parts[0], parts[1] - 1, parts[2]); 
+        current.setDate(current.getDate() + days);
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, '0');
+        const d = String(current.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+        dateInput.dispatchEvent(new Event('change'));
+    }
 
     // --- SAVE/LOAD REQUESTS ---
     function loadRequests() {
@@ -572,7 +589,6 @@
             const pct = ((now - startBoundary) / (endBoundary - startBoundary)) * 100;
             line.style.left = pct + '%'; 
             line.style.display = 'block';
-            // Set dynamic time text
             const h = String(now.getHours()).padStart(2, '0');
             const m = String(now.getMinutes()).padStart(2, '0');
             line.setAttribute('data-time', `${h}:${m}`);
@@ -906,47 +922,9 @@
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     
                     // Duplicate Check
-                    // Find all existing shifts for this person
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === cleanName) personShifts.push({s, idx}); });
-                    
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
-
-                    let targetIndex = -1;
-
-                    // Check distance to existing shifts
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        
-                        const oldMeta = calculateShiftMeta(s);
-                        // Distance logic:
-                        // Gap 1: New starts after Old ends? (newStartOffset - oldMeta.end)
-                        // Gap 2: Old starts after New ends? (oldMeta.start - newAbsEnd)
-                        // If EITHER gap is >= 600 (10 hours), they are distinct.
-                        // If they are NOT distinct (both gaps < 600), then this is a replacement.
-                        
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        
-                        // Fix for wrap-around negative gaps not being real gaps:
-                        // Actually, since we normalized time to offsets from 0400, linear comparison is safer.
-                        // If overlaps or close, assume same shift.
-                        
-                        // Simply: if they are NOT distinct, replace.
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        
-                        if(!isDistinct) {
-                            targetIndex = idx;
-                            break;
-                        }
-                    }
-
-                    if (targetIndex !== -1) {
-                        const s = shifts[targetIndex];
+                    const existingIdx = shifts.findIndex(s => s.name === cleanName);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) {
                             s.start = currentShift.start; s.end = currentShift.end;
                             s.isCic = (currentShift.isCic || s.isCic);
@@ -958,56 +936,18 @@
             }
             if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    // Similar logic for standard employees
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
-                    
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
-
-                    let targetIndex = -1;
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        const oldMeta = calculateShiftMeta(s);
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        if(!isDistinct) { targetIndex = idx; break; }
-                    }
-
-                    if (targetIndex !== -1) {
-                        const s = shifts[targetIndex];
+                    const existingIdx = shifts.findIndex(s => s.name === n);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
                 }
             });
             if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    // Similar logic for trainees
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
-                    
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
-
-                    let targetIndex = -1;
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        const oldMeta = calculateShiftMeta(s);
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        if(!isDistinct) { targetIndex = idx; break; }
-                    }
-
-                    if (targetIndex !== -1) {
-                        const s = shifts[targetIndex];
+                    const existingIdx = shifts.findIndex(s => s.name === n);
+                    if (existingIdx !== -1) {
+                        const s = shifts[existingIdx];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
                 }
@@ -1257,8 +1197,19 @@
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function openEditModal(index) {
         const s = shifts[index]; document.getElementById('editId').value = index; document.getElementById('editName').value = s.name;
-        document.getElementById('editStart').value = s.start.replace(':', ''); document.getElementById('editEnd').value = s.end.replace(':', '');
+        document.getElementById('editStart').value = s.start.replace(':', ''); 
+        
+        // Removed bad 'editEnd' reference
+        
         document.getElementById('editNotes').value = s.notes || ''; document.getElementById('editStaffing').checked = s.isStaffing || false;
+        
+        // Calculate Duration
+        let sMins = timeToOffset(s.start);
+        let eMins = timeToOffset(s.end);
+        let diff = eMins - sMins;
+        if (diff < 0) diff += 1440;
+        document.getElementById('editDuration').value = Number((diff / 60).toFixed(2));
+        
         let leaveVal = ''; if(s.leaveStart && s.leaveEnd) leaveVal = `${s.leaveStart.replace(':','')}-${s.leaveEnd.replace(':','')}`;
         document.getElementById('editLeaveRange').value = leaveVal;
         let tosVal = ''; if(s.tosStart && s.tosEnd) tosVal = `${s.tosStart.replace(':','')}-${s.tosEnd.replace(':','')}`;
@@ -1276,11 +1227,34 @@
         pushHistory();
         const idx = document.getElementById('editId').value;
         if (idx !== '') {
-            const leaveRange = parseRangeStr(document.getElementById('editLeaveRange').value); const tosRange = parseRangeStr(document.getElementById('editTosRange').value);
+            const startVal = normalizeTime(document.getElementById('editStart').value);
+            const durVal = parseFloat(document.getElementById('editDuration').value);
+            
+            if (!startVal || isNaN(durVal)) { alert("Invalid Start Time or Duration"); return; }
+    
+            let h = parseInt(startVal.substring(0,2));
+            let m = parseInt(startVal.substring(3,5));
+            let totalStart = (h * 60) + m;
+            let totalEnd = totalStart + (durVal * 60);
+            
+            let eh = Math.floor(totalEnd / 60) % 24;
+            let em = Math.round(totalEnd % 60);
+            let endVal = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
+    
+            const leaveRange = parseRangeStr(document.getElementById('editLeaveRange').value); 
+            const tosRange = parseRangeStr(document.getElementById('editTosRange').value);
+            
             shifts[idx] = {
-                ...shifts[idx], start: normalizeTime(document.getElementById('editStart').value), end: normalizeTime(document.getElementById('editEnd').value),
-                notes: document.getElementById('editNotes').value, leaveStart: leaveRange.start, leaveEnd: leaveRange.end, tosStart: tosRange.start, tosEnd: tosRange.end,
-                isStaffing: document.getElementById('editStaffing').checked, assignedTrainer: document.getElementById('editAssignedTrainer').value
+                ...shifts[idx], 
+                start: startVal, 
+                end: endVal,
+                notes: document.getElementById('editNotes').value, 
+                leaveStart: leaveRange.start, 
+                leaveEnd: leaveRange.end, 
+                tosStart: tosRange.start, 
+                tosEnd: tosRange.end,
+                isStaffing: document.getElementById('editStaffing').checked, 
+                assignedTrainer: document.getElementById('editAssignedTrainer').value
             };
             saveData(false); closeModal('editModal');
         }
