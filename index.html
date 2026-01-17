@@ -139,14 +139,13 @@
         .shift-bar { background-color: var(--bar-color); z-index: 5; position: absolute; }
         .shift-bar:hover { z-index: 10; background-color: var(--bar-hover); height: 85%; }
         
-        /* NEW: Greyed out style for finished shifts on graph */
         .shift-bar.bar-over {
             background-color: #e5e7eb !important;
             border-color: #d1d5db !important;
             color: #888 !important;
             opacity: 0.8;
         }
-        .shift-bar.bar-over .last-hour-indicator { display: none; } /* Hide yellow warning if over */
+        .shift-bar.bar-over .last-hour-indicator { display: none; }
 
         .shift-bar.trainee { background-color: var(--bar-trainee); border-color: #7e22ce; }
         .leave-bar { background-color: var(--bar-leave); z-index: 20; border-color: #6b7280; }
@@ -907,9 +906,47 @@
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     
                     // Duplicate Check
-                    const existingIdx = shifts.findIndex(s => s.name === cleanName);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    // Find all existing shifts for this person
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === cleanName) personShifts.push({s, idx}); });
+                    
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+
+                    let targetIndex = -1;
+
+                    // Check distance to existing shifts
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        
+                        const oldMeta = calculateShiftMeta(s);
+                        // Distance logic:
+                        // Gap 1: New starts after Old ends? (newStartOffset - oldMeta.end)
+                        // Gap 2: Old starts after New ends? (oldMeta.start - newAbsEnd)
+                        // If EITHER gap is >= 600 (10 hours), they are distinct.
+                        // If they are NOT distinct (both gaps < 600), then this is a replacement.
+                        
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        
+                        // Fix for wrap-around negative gaps not being real gaps:
+                        // Actually, since we normalized time to offsets from 0400, linear comparison is safer.
+                        // If overlaps or close, assume same shift.
+                        
+                        // Simply: if they are NOT distinct, replace.
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        
+                        if(!isDistinct) {
+                            targetIndex = idx;
+                            break;
+                        }
+                    }
+
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) {
                             s.start = currentShift.start; s.end = currentShift.end;
                             s.isCic = (currentShift.isCic || s.isCic);
@@ -921,18 +958,56 @@
             }
             if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    const existingIdx = shifts.findIndex(s => s.name === n);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    // Similar logic for standard employees
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
                 }
             });
             if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    const existingIdx = shifts.findIndex(s => s.name === n);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    // Similar logic for trainees
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
                 }
@@ -1011,31 +1086,20 @@
             
             // 1. APPROVED -> Update Graph
             if (isApproved) {
+                // CHANGE: Ignore Shift Changes if Approved
+                if (isShiftChg) return; 
+
                 const idx = shifts.findIndex(s => s.name === cpc);
                 if (idx !== -1) {
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } // save once
                     
-                    if (isShiftChg && cleanTo.toUpperCase() === 'X') {
-                        shifts.splice(idx, 1);
-                        changesMade = true;
-                        return;
-                    }
-
                     if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
                             shifts[idx].leaveStart = normalizeTime(cleanFrom);
                             shifts[idx].leaveEnd = normalizeTime(cleanTo);
                             changesMade = true;
                         }
-                    } else if (isShiftChg) {
-                        let p = parseShiftStringForPreview(cleanTo); 
-                        if (p) {
-                            shifts[idx].start = p.start;
-                            shifts[idx].end = p.end;
-                            if (p.isCic) shifts[idx].isCic = true;
-                            changesMade = true;
-                        }
-                    }
+                    } 
                 }
                 return; 
             }
