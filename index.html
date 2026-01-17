@@ -686,12 +686,56 @@
         return el;
     }
     function getSortedIndices() {
-        let sorted = []; let added = new Set(); let traineesByTrainer = {};
-        shifts.forEach((s, idx) => { if(s.assignedTrainer) { if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; traineesByTrainer[s.assignedTrainer].push(idx); } });
-        shifts.forEach((s, idx) => {
-            if(s.assignedTrainer) { if(!shifts.some(p => p.name === s.assignedTrainer)) { if(!added.has(idx)) { sorted.push(idx); added.add(idx); } } } 
-            else { if(!added.has(idx)) { sorted.push(idx); added.add(idx); if(traineesByTrainer[s.name]) { traineesByTrainer[s.name].forEach(childIdx => { if(!added.has(childIdx)) { sorted.push(childIdx); added.add(childIdx); } }); } } }
+        let sorted = []; 
+        let added = new Set(); 
+        let traineesByTrainer = {};
+
+        // 1. Map trainees to trainers
+        shifts.forEach((s, idx) => { 
+            if(s.assignedTrainer) { 
+                if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; 
+                traineesByTrainer[s.assignedTrainer].push(idx); 
+            } 
         });
+
+        // 2. Create list of indices
+        let indices = shifts.map((_, i) => i);
+
+        // 3. Sort indices by start time
+        indices.sort((a, b) => {
+            const startA = timeToOffset(shifts[a].start);
+            const startB = timeToOffset(shifts[b].start);
+            if (startA !== startB) return startA - startB;
+            // If start times are equal, sort alphabetically by name for consistency
+            return shifts[a].name.localeCompare(shifts[b].name);
+        });
+
+        // 4. Build sorted visual list (grouping logic)
+        indices.forEach((idx) => {
+            if (added.has(idx)) return; // Already handled (was a trainee of previous)
+
+            const s = shifts[idx];
+
+            // If it is a trainee with a present trainer, skip (wait for trainer)
+            if (s.assignedTrainer && shifts.some(p => p.name === s.assignedTrainer && !p._hidden)) {
+                return;
+            }
+
+            // Add the main shift (Trainer, Independent, or Orphaned Trainee)
+            sorted.push(idx);
+            added.add(idx);
+
+            // If this person is a trainer, add their trainees immediately
+            if (traineesByTrainer[s.name]) {
+                traineesByTrainer[s.name].forEach(childIdx => {
+                    if (!added.has(childIdx)) {
+                        sorted.push(childIdx);
+                        added.add(childIdx);
+                    }
+                });
+            }
+        });
+
         return sorted;
     }
 
