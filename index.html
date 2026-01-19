@@ -70,6 +70,7 @@
         button:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         button.secondary { background-color: #6b7280; }
         button.action-btn { background-color: #0d9488; } 
+        button.smart-btn { background-color: #8b5cf6; font-weight: bold;} /* Purple for Smart Paste */
 
         .menu-container { position: relative; }
         .menu-dropdown {
@@ -92,15 +93,7 @@
         }
 
         .timeline-header { height: 40px; position: relative; border-bottom: 1px solid #ccc; background: #f9fafb; flex-shrink: 0; }
-        
-        .time-label { 
-            position: absolute; 
-            bottom: 5px; 
-            font-size: 0.75rem; 
-            font-weight: 500; 
-            transform: translateX(-50%); 
-            color: #555; 
-        }
+        .time-label { position: absolute; bottom: 5px; font-size: 0.75rem; font-weight: 500; transform: translateX(-50%); color: #555; }
 
         .count-header { height: 25px; position: relative; border-bottom: 1px solid #ccc; background: #fff; flex-shrink: 0; }
         .count-label {
@@ -109,9 +102,9 @@
         }
 
         /* SHADING CLASSES */
-        .count-good { background-color: #86efac !important; color: #14532d !important; } /* Light Green */
-        .count-bad { background-color: #fca5a5 !important; color: #7f1d1d !important; } /* Light Red */
-        .count-warning { background-color: #fef08a !important; color: #854d0e !important; } /* Light Yellow */
+        .count-good { background-color: #86efac !important; color: #14532d !important; } 
+        .count-bad { background-color: #fca5a5 !important; color: #7f1d1d !important; } 
+        .count-warning { background-color: #fef08a !important; color: #854d0e !important; } 
 
         .graph-body { flex: 1; position: relative; display: flex; flex-direction: column; justify-content: flex-start; overflow-y: hidden; }
 
@@ -139,12 +132,7 @@
         .shift-bar { background-color: var(--bar-color); z-index: 5; position: absolute; }
         .shift-bar:hover { z-index: 10; background-color: var(--bar-hover); height: 85%; }
         
-        .shift-bar.bar-over {
-            background-color: #e5e7eb !important;
-            border-color: #d1d5db !important;
-            color: #888 !important;
-            opacity: 0.8;
-        }
+        .shift-bar.bar-over { background-color: #e5e7eb !important; border-color: #d1d5db !important; color: #888 !important; opacity: 0.8; }
         .shift-bar.bar-over .last-hour-indicator { display: none; }
 
         .shift-bar.trainee { background-color: var(--bar-trainee); border-color: #7e22ce; }
@@ -153,11 +141,7 @@
         .tos-bar { background-color: var(--bar-tos); z-index: 15; border-color: #16a34a; }
         .tos-bar:hover { z-index: 25; height: 85%; }
 
-        .preview-highlight {
-            border: 3px solid #22c55e !important;
-            box-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
-            z-index: 100 !important;
-        }
+        .preview-highlight { border: 3px solid #22c55e !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.6); z-index: 100 !important; }
 
         .last-hour-indicator {
             position: absolute; top: 0; bottom: 0; background-color: var(--last-hour-color);
@@ -170,15 +154,10 @@
             border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
         }
 
-        /* Pre-Duty WX Badge Style */
         .wx-badge {
-            position: absolute; left: 4px; top: 0; bottom: 0;
-            display: flex; align-items: center;
-            color: white;
-            font-size: 0.7rem; font-weight: 900;
-            z-index: 20;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-            white-space: nowrap;
+            position: absolute; left: 4px; top: 0; bottom: 0; display: flex; align-items: center;
+            color: white; font-size: 0.7rem; font-weight: 900; z-index: 20;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5); white-space: nowrap;
         }
 
         .bar-text-container {
@@ -189,9 +168,7 @@
         .bar-initials { font-weight: 900; font-size: 0.85rem; letter-spacing: 0.5px; }
         .bar-times { font-weight: 500; font-size: 0.7rem; opacity: 0.95; }
 
-        .leave-bar .bar-text-container, .tos-bar .bar-text-container {
-            flex-direction: column; align-items: center; justify-content: center; line-height: 0.9; gap: 0; width: 100%;
-        }
+        .leave-bar .bar-text-container, .tos-bar .bar-text-container { flex-direction: column; align-items: center; justify-content: center; line-height: 0.9; gap: 0; width: 100%; }
         .leave-bar .bar-initials, .tos-bar .bar-initials { font-size: 0.7rem; }
         .leave-bar .bar-times, .tos-bar .bar-times { font-size: 0.6rem; }
 
@@ -210,7 +187,6 @@
         .employee-card.trainee-card { background-color: #f3e8ff; border-color: #d8b4fe; }
         .employee-card:hover { background-color: #f9fafb; }
 
-        /* ACTIVE / OVER STATUS CLASSES */
         .card-active { background-color: #dcfce7 !important; border-left: 4px solid #22c55e !important; }
         .card-over { background-color: #f3f4f6 !important; opacity: 0.6; color: #666; }
         
@@ -230,17 +206,9 @@
         .btn-edit { background-color: #f59e0b; }
         .btn-del { background-color: var(--danger-color); }
 
-        /* Dropdown style in card */
-        .trainer-dropdown {
-            margin-top: 4px; padding: 2px; font-size: 0.75rem;
-            border: 1px solid #d8b4fe; border-radius: 4px; background: #fff;
-            width: 100%; max-width: 100%; cursor: pointer;
-        }
+        .trainer-dropdown { margin-top: 4px; padding: 2px; font-size: 0.75rem; border: 1px solid #d8b4fe; border-radius: 4px; background: #fff; width: 100%; max-width: 100%; cursor: pointer; }
 
-        .pending-container {
-            border-top: 2px solid #ccc; background-color: #fafafa; padding: 0;
-            max-height: 35%; overflow-y: auto; display: none; 
-        }
+        .pending-container { border-top: 2px solid #ccc; background-color: #fafafa; padding: 0; max-height: 35%; overflow-y: auto; display: none; }
         .pending-header { padding: 8px 10px; background: #fff3e0; font-weight: bold; font-size: 0.85rem; color: #d35400; border-bottom: 1px solid #eee; }
         .pending-list { list-style: none; padding: 10px; margin: 0; }
         
@@ -262,11 +230,7 @@
         .req-delete { width: 10%; text-align: right; color: #aaa; font-size: 1.1em; }
         .req-delete:hover { color: #c0392b; }
 
-        /* Modals */
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5);
-            display: none; justify-content: center; align-items: center; z-index: 1000;
-        }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
         .modal { background: white; padding: 20px; border-radius: 8px; width: 450px; max-width: 90%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .modal h3 { margin-bottom: 15px; }
         .modal textarea { width: 100%; height: 150px; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; font-family: monospace; resize: vertical; }
@@ -287,7 +251,6 @@
         }
         .btn-clear:hover { background: #d1d5db; }
         
-        /* Modal Tag Previews */
         .modal-tag-container { min-height: 24px; margin-top: 6px; }
         .modal-tag { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; gap: 5px; margin-right: 5px;}
         .modal-tag.leave { background: #f3f4f6; color: #4b5563; border: 1px solid #d1d5db; }
@@ -328,8 +291,7 @@
         <input type="date" id="datePicker">
         <button class="nav-btn" onclick="changeDate(1)" title="Next Day">›</button>
     </div>
-    <button onclick="openPasteModal()">Paste Schedule</button>
-    <button class="action-btn" onclick="openRequestModal()">Paste Requests</button>
+    <button class="smart-btn" onclick="initiateSmartPaste()">Smart Paste</button>
     <button class="secondary" onclick="clearData()">Clear Day</button>
 </header>
 
@@ -352,38 +314,14 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="pasteModal">
+<div class="modal-overlay" id="smartPasteModal">
     <div class="modal">
-        <h3>Paste Schedule Data</h3>
-        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste column data below.</p>
-        <textarea id="pasteInput" placeholder="Paste data here..."></textarea>
+        <h3>Smart Import Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste data from the "Magic Bookmark", Schedule, Requests, or Pre-Duty WX.</p>
+        <textarea id="smartPasteInput" placeholder="Paste anything here..."></textarea>
         <div class="modal-actions">
-            <button class="secondary" onclick="closeModal('pasteModal')">Cancel</button>
-            <button onclick="processPaste()">Visualize</button>
-        </div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="preDutyModal">
-    <div class="modal">
-        <h3>Paste Pre-Duty WX Data</h3>
-        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste log data (8kj) or just initials (kj).</p>
-        <textarea id="preDutyInput" placeholder="Paste text here..."></textarea>
-        <div class="modal-actions">
-            <button class="secondary" onclick="closeModal('preDutyModal')">Cancel</button>
-            <button onclick="processPreDuty()">Process</button>
-        </div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="requestModal">
-    <div class="modal">
-        <h3>Paste Request Data</h3>
-        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste the 8 columns: CPC, TYPE, FROM, TO, WITH, STATUS, INI, DATE.</p>
-        <textarea id="requestInput" placeholder="Paste request table here..."></textarea>
-        <div class="modal-actions">
-            <button class="secondary" onclick="closeModal('requestModal')">Cancel</button>
-            <button onclick="processRequests()">Process</button>
+            <button class="secondary" onclick="closeModal('smartPasteModal')">Cancel</button>
+            <button class="smart-btn" onclick="processSmartPaste()">Import</button>
         </div>
     </div>
 </div>
@@ -440,6 +378,42 @@
         <ul id="manageListEl" class="manage-list"></ul>
         <div class="manage-input-group"><input type="text" id="manageInput" placeholder="Add Initials/Name..."><button onclick="addListItem()">Add</button></div>
         <div class="modal-actions"><button class="secondary" onclick="closeModal('manageModal')">Close</button></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="pasteModal">
+    <div class="modal">
+        <h3>Paste Schedule Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste column data below.</p>
+        <textarea id="pasteInput" placeholder="Paste data here..."></textarea>
+        <div class="modal-actions">
+            <button class="secondary" onclick="closeModal('pasteModal')">Cancel</button>
+            <button onclick="processPaste()">Visualize</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="preDutyModal">
+    <div class="modal">
+        <h3>Paste Pre-Duty WX Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste log data (8kj) or just initials (kj).</p>
+        <textarea id="preDutyInput" placeholder="Paste text here..."></textarea>
+        <div class="modal-actions">
+            <button class="secondary" onclick="closeModal('preDutyModal')">Cancel</button>
+            <button onclick="processPreDuty()">Process</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="requestModal">
+    <div class="modal">
+        <h3>Paste Request Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste the 8 columns: CPC, TYPE, FROM, TO, WITH, STATUS, INI, DATE.</p>
+        <textarea id="requestInput" placeholder="Paste request table here..."></textarea>
+        <div class="modal-actions">
+            <button class="secondary" onclick="closeModal('requestModal')">Cancel</button>
+            <button onclick="processRequests()">Process</button>
+        </div>
     </div>
 </div>
 
@@ -985,6 +959,25 @@
         setTimeout(() => document.getElementById('pasteInput').focus(), 50);
     }
 
+    function openSmartPasteModal() {
+        document.getElementById('smartPasteModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('smartPasteInput').focus(), 50);
+    }
+    
+    async function initiateSmartPaste() {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                processSmartPaste(text);
+            } else {
+                openSmartPasteModal();
+            }
+        } catch (err) {
+            console.warn('Clipboard read failed:', err);
+            openSmartPasteModal();
+        }
+    }
+
     function openPreDutyModal() {
         document.getElementById('preDutyModal').style.display = 'flex';
         setTimeout(() => document.getElementById('preDutyInput').focus(), 50);
@@ -992,10 +985,52 @@
 
     function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
     
-    function processPaste() {
-        let text = document.getElementById('pasteInput').value; text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
+    // --- PREVIOUS DAY LOGIC HELPERS ---
+    function getPreviousDate(dateStr) {
+        let [y, m, d] = dateStr.split('-').map(Number);
+        let date = new Date(y, m - 1, d);
+        date.setDate(date.getDate() - 1);
+        let ny = date.getFullYear();
+        let nm = String(date.getMonth() + 1).padStart(2, '0');
+        let nd = String(date.getDate()).padStart(2, '0');
+        return `${ny}-${nm}-${nd}`;
+    }
+
+    function addShiftToStorage(dateStr, newShift) {
+        let key = 'shifts_' + dateStr;
+        let stored = localStorage.getItem(key);
+        let dayShifts = stored ? JSON.parse(stored) : [];
+        
+        // Simple Duplicate Check
+        let exists = dayShifts.some(s => s.name === newShift.name && s.start === newShift.start);
+        if (!exists) {
+            dayShifts.push(newShift);
+            localStorage.setItem(key, JSON.stringify(dayShifts));
+        }
+    }
+
+    function addShift(name, start, end, type, isCic) {
+        if (!name) return;
+        
+        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+
+        // 20:00 RULE Check
+        let h = parseInt(start.substring(0, 2));
+        if (h >= 20) {
+            // Move to Previous Day
+            let prevDate = getPreviousDate(currentDate);
+            addShiftToStorage(prevDate, newShift);
+        } else {
+            // Stay on Current Day
+            shifts.push(newShift);
+        }
+    }
+    
+    function processPaste(manualContent) {
+        let text = manualContent || document.getElementById('pasteInput').value; 
+        text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
         let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l);
-        let currentShift = null; let dataBuffer = []; const shiftRegex = /^([cC])?(\d{3,4})[fF]?(-(\d{1,2}))?$/;
+        let currentShift = null; let dataBuffer = []; const shiftRegex = /^([cC])?(\d{3,4})[fF]?(-(\d{1,2}))?[fF]?$/;
         function processBuffer() {
             if (!currentShift) return;
             let cleanData = dataBuffer.filter(l => !l.includes(' of '));
@@ -1095,11 +1130,15 @@
                 currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, isCic: isCicHeader };
             } else { dataBuffer.push(line); }
         });
-        processBuffer(); saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+        processBuffer(); 
+        
+        if(!manualContent) {
+            saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+        }
     }
 
-    function processPreDuty() {
-        const text = document.getElementById('preDutyInput').value;
+    function processPreDuty(manualContent) {
+        const text = manualContent || document.getElementById('preDutyInput').value;
         const tokens = text.split(/[\s,]+/);
         pushHistory(); 
         
@@ -1118,71 +1157,62 @@
             }
         });
 
-        saveData(false);
-        closeModal('preDutyModal');
-        document.getElementById('preDutyInput').value = '';
+        if(!manualContent) {
+            saveData(false);
+            closeModal('preDutyModal');
+            document.getElementById('preDutyInput').value = '';
+        }
     }
 
-    function processRequests() {
-        const text = document.getElementById('requestInput').value; 
+    function processRequests(manualContent) {
+        const text = manualContent || document.getElementById('requestInput').value; 
         const lines = text.split(/\n/);
         let changesMade = false;
-        
         let snapshotNeeded = false;
 
         lines.forEach(line => {
             if (!line.trim()) return;
-            
-            // --- UPDATED COLUMN HANDLING START ---
             let cols = line.split(/\t/);
             if (cols.length < 5) cols = line.split(/\s{2,}/);
             if (cols.length < 5) cols = line.split(/\s+/);
 
-            // Find status index dynamically
             let statusIndex = -1;
             for (let i = 4; i < cols.length; i++) {
-                if (cols[i] && /Approved|Pending|Denied/i.test(cols[i])) {
-                    statusIndex = i;
-                    break;
-                }
+                if (cols[i] && /Approved|Pending|Denied/i.test(cols[i])) { statusIndex = i; break; }
             }
-            if (statusIndex === -1) return; // Skip invalid lines
+            if (statusIndex === -1) return; 
 
             const cpc = cols[0].trim();
             const status = cols[statusIndex].trim();
-            
-            // TYPE, FROM, TO logic with "Shift Chg" fix
             let typeRaw = cols[1].trim();
             let from, to;
-            
             if (cols[1] === 'Shift' && cols[2] === 'Chg') {
-                typeRaw = "Shift Chg";
-                from = cols[3] ? cols[3].trim() : '';
-                to = cols[4] ? cols[4].trim() : '';
+                typeRaw = "Shift Chg"; from = cols[3] ? cols[3].trim() : ''; to = cols[4] ? cols[4].trim() : '';
             } else {
-                from = cols[2] ? cols[2].trim() : '';
-                to = cols[3] ? cols[3].trim() : '';
+                from = cols[2] ? cols[2].trim() : ''; to = cols[3] ? cols[3].trim() : '';
             }
-            // --- UPDATED COLUMN HANDLING END ---
             
             let cleanFrom = from; if (cleanFrom.toLowerCase() !== 'shift') cleanFrom = cleanFrom.replace(/f/gi, '');
             let cleanTo = to; if (cleanTo.toLowerCase() !== 'shift') cleanTo = cleanTo.replace(/f/gi, '');
             
             const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
-            const isShiftChg = typeRaw.toLowerCase().includes('shift chg'); 
+            const isShiftChg = typeRaw.toLowerCase().includes('shift chg');
+            const isTos = ['XTE', 'CTE', 'OT'].some(t => typeRaw.toUpperCase().includes(t)); 
             const isApproved = status.toLowerCase().includes('approved');
             const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
             
-            // 1. APPROVED -> Update Graph
             if (isApproved) {
-                // CHANGE: Ignore Shift Changes if Approved
                 if (isShiftChg) return; 
-
                 const idx = shifts.findIndex(s => s.name === cpc);
                 if (idx !== -1) {
-                    if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } // save once
+                    if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
-                    if (isLeave) {
+                    if (isTos) {
+                        shifts[idx].tosStart = normalizeTime(cleanFrom);
+                        shifts[idx].tosEnd = normalizeTime(cleanTo);
+                        changesMade = true;
+                    }
+                    else if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
                             shifts[idx].leaveStart = normalizeTime(cleanFrom);
                             shifts[idx].leaveEnd = normalizeTime(cleanTo);
@@ -1193,47 +1223,59 @@
                 return; 
             }
 
-            // 2. PENDING/DENIED -> Add to List (Duplicate Check)
             if (isPendingOrDenied) {
                 let details = '';
-                if (isShiftChg) { 
-                    if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; 
-                } else { 
-                    if (cleanFrom.toLowerCase() !== 'shift') details = `(${cleanFrom}-${cleanTo})`; 
-                }
-                
-                // --- DUPLICATE CHECK ---
-                const newReq = {
-                    cpc: cpc,
-                    type: typeRaw,
-                    details: details,
-                    status: status,
-                    isShiftChg: isShiftChg,
-                    cleanFrom: cleanFrom,
-                    cleanTo: cleanTo
-                };
-
-                const isDuplicate = requests.some(r => 
-                    r.cpc === newReq.cpc && 
-                    r.type === newReq.type && 
-                    r.details === newReq.details && 
-                    r.status === newReq.status
-                );
-
-                if (!isDuplicate) {
-                    requests.push(newReq);
-                }
+                if (isShiftChg) { if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; } else { if (cleanFrom.toLowerCase() !== 'shift') details = `(${cleanFrom}-${cleanTo})`; }
+                const newReq = { cpc: cpc, type: typeRaw, details: details, status: status, isShiftChg: isShiftChg, cleanFrom: cleanFrom, cleanTo: cleanTo };
+                const isDuplicate = requests.some(r => r.cpc === newReq.cpc && r.type === newReq.type && r.details === newReq.details && r.status === newReq.status);
+                if (!isDuplicate) { requests.push(newReq); }
             }
         });
         
         saveRequests();
         renderRequests();
         if (changesMade) {
-            saveData(false); // already pushed history
+            saveData(false); 
             render();
         }
-        closeModal('requestModal'); 
-        document.getElementById('requestInput').value = '';
+        if(!manualContent) {
+            closeModal('requestModal'); 
+            document.getElementById('requestInput').value = '';
+        }
+    }
+
+    // --- SMART PASTE LOGIC ---
+    function processSmartPaste(manualContent) {
+        const raw = manualContent || document.getElementById('smartPasteInput').value;
+        if (!raw.trim()) return;
+
+        pushHistory(); // Single history snapshot for the batch
+
+        // 1. Split by Magic Separators
+        if (raw.includes('===SCHEDULE_START===')) {
+            // It's a Master Paste
+            const parts = raw.split(/===[A-Z_]+===/); 
+            // parts[0] is empty, parts[1] is Schedule, parts[2] is Requests
+            if (parts[1]) processPaste(parts[1]);
+            if (parts[2]) processRequests(parts[2]);
+        } 
+        else {
+            // Heuristic detection
+            if (raw.includes('AMAREA') || /8[a-zA-Z]{2}/.test(raw)) {
+                // Looks like Pre-Duty WX log
+                processPreDuty(raw);
+            } else if (raw.includes('\t') && (raw.includes('Approved') || raw.includes('Pending'))) {
+                // Looks like Requests (Table data)
+                processRequests(raw);
+            } else {
+                // Default to Schedule
+                processPaste(raw);
+            }
+        }
+
+        saveData(false);
+        closeModal('smartPasteModal');
+        document.getElementById('smartPasteInput').value = '';
     }
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr) {
@@ -1339,7 +1381,19 @@
 
     function addShift(name, start, end, type, isCic) {
         if (!name) return;
-        shifts.push({ name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' });
+        
+        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+
+        // 20:00 RULE Check
+        let h = parseInt(start.substring(0, 2));
+        if (h >= 20) {
+            // Move to Previous Day
+            let prevDate = getPreviousDate(currentDate);
+            addShiftToStorage(prevDate, newShift);
+        } else {
+            // Stay on Current Day
+            shifts.push(newShift);
+        }
     }
 
     // Modals & Utils
