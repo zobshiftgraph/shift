@@ -170,6 +170,17 @@
             border-left: 1px solid rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.4);
         }
 
+        /* Pre-Duty WX Badge Style */
+        .wx-badge {
+            position: absolute; left: 4px; top: 0; bottom: 0;
+            display: flex; align-items: center;
+            color: white;
+            font-size: 0.7rem; font-weight: 900;
+            z-index: 20;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            white-space: nowrap;
+        }
+
         .bar-text-container {
             position: absolute; top: 0; height: 100%; z-index: 8; display: flex; align-items: center; justify-content: center;
             gap: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); white-space: nowrap; overflow: hidden;
@@ -308,6 +319,7 @@
     </div>
     <h2>Shift Visualizer</h2>
     
+    <button onclick="openPreDutyModal()">Paste Pre-Duty WX</button>
     <button onclick="undo()" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button onclick="redo()" id="btnRedo" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     
@@ -348,6 +360,18 @@
         <div class="modal-actions">
             <button class="secondary" onclick="closeModal('pasteModal')">Cancel</button>
             <button onclick="processPaste()">Visualize</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="preDutyModal">
+    <div class="modal">
+        <h3>Paste Pre-Duty WX Data</h3>
+        <p style="font-size:0.8rem; color:#666; margin-bottom:10px;">Paste log data (8kj) or just initials (kj).</p>
+        <textarea id="preDutyInput" placeholder="Paste text here..."></textarea>
+        <div class="modal-actions">
+            <button class="secondary" onclick="closeModal('preDutyModal')">Cancel</button>
+            <button onclick="processPreDuty()">Process</button>
         </div>
     </div>
 </div>
@@ -628,34 +652,40 @@
     function updateEmployeeStatuses(now, startBoundary, endBoundary) {
         let currentOffset = -1;
         if (now >= startBoundary && now < endBoundary) {
-            currentOffset = (now - startBoundary) / 1000 / 60; 
+            currentOffset = (now - startBoundary) / 1000 / 60; // Minutes since start
         } else if (now > endBoundary) {
-            currentOffset = 9999; 
+            currentOffset = 9999; // Past
         } else {
-            currentOffset = -1; 
+            currentOffset = -1; // Future
         }
 
         shifts.forEach((s, idx) => {
             const card = document.getElementById(`emp-card-${idx}`);
             if (!card) return;
 
+            // Remove all possible status classes first
             card.classList.remove('card-active', 'card-over', 'card-future');
+            
             const bar = document.getElementById(`shift-bar-${idx}`);
             if (bar) bar.classList.remove('bar-over');
 
             if (currentOffset === 9999) {
+                // Entire day is over
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
                 return;
             }
             if (currentOffset === -1) {
+                // Future date
                 return; 
             }
 
             const meta = calculateShiftMeta(s);
             if (currentOffset >= meta.start && currentOffset < meta.end) {
+                // Active now
                 card.classList.add('card-active');
             } else if (currentOffset >= meta.end) {
+                // Shift finished
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
             }
@@ -759,7 +789,7 @@
             let timeLabel = `${shift.start}-${shift.end} ${durationHours}h`;
 
             const mainBar = document.createElement('div'); mainBar.className = `bar-segment shift-bar ${isTrainee ? 'trainee' : ''}`;
-            mainBar.id = `shift-bar-${index}`; 
+            mainBar.id = `shift-bar-${index}`; // Unique ID for shading
             if (shift._previewing) mainBar.classList.add('preview-highlight');
             mainBar.style.left = `${barLeftPct}%`; mainBar.style.width = `${barWidthPct}%`;
             mainBar.onclick = () => openEditModal(index); mainBar.title = `${displayName} ${timeLabel}`;
@@ -776,7 +806,14 @@
                     if(overlap > 0) { let oStart = Math.max(meta.start, tMeta.start); let oLeft = ((oStart - meta.start) / duration) * 100; let oWidth = (overlap / duration) * 100; stripeHtml += `<div class="training-overlap-indicator" style="left: ${oLeft}%; width: ${oWidth}%;"></div>`; }
                 }
             });
-            mainBar.innerHTML = `<span class="bar-text-container" style="left: ${textLeftPct}%; width: ${textWidthPct}%;"><span class="bar-initials">${displayName}</span><span class="bar-times">${timeLabel}</span></span>${yellowHtml}${stripeHtml}`;
+            
+            // PRE-DUTY WX BADGE
+            let wxHtml = '';
+            if (shift.preDutyWx) {
+                 wxHtml = `<div class="wx-badge"><span style="color:#4ade80; margin-right:2px;">✓</span> WX</div>`;
+            }
+
+            mainBar.innerHTML = `${wxHtml}<span class="bar-text-container" style="left: ${textLeftPct}%; width: ${textWidthPct}%;"><span class="bar-initials">${displayName}</span><span class="bar-times">${timeLabel}</span></span>${yellowHtml}${stripeHtml}`;
             row.appendChild(mainBar);
 
             if (shift.leaveStart && shift.leaveEnd) {
@@ -821,7 +858,7 @@
             }
 
             const card = document.createElement('div'); card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
-            card.id = `emp-card-${index}`; 
+            card.id = `emp-card-${index}`; // Add ID for real-time updates
             
             card.innerHTML = `
                 <div class="emp-info">
@@ -838,14 +875,14 @@
             listBody.appendChild(card);
         });
         updateStaffCounts();
-        updateCurrentTime(); 
+        updateCurrentTime(); // Ensure status colors are correct immediately
     }
 
     function quickAssignTrainer(index, trainerName) {
         pushHistory();
         shifts[index].assignedTrainer = trainerName;
         saveData(false);
-        render(); 
+        render(); // Re-render to update grouping/sorting in the visualizer
     }
 
     function updateStaffCounts() {
@@ -943,6 +980,18 @@
         }
     }
 
+    function openPasteModal() { 
+        document.getElementById('pasteModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('pasteInput').focus(), 50);
+    }
+
+    function openPreDutyModal() {
+        document.getElementById('preDutyModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('preDutyInput').focus(), 50);
+    }
+
+    function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
+    
     function processPaste() {
         let text = document.getElementById('pasteInput').value; text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
         let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l);
@@ -956,10 +1005,27 @@
                     if(!n) return; let isCic = currentShift.isCic; let cleanName = n;
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     
-                    // Duplicate Check
-                    const existingIdx = shifts.findIndex(s => s.name === cleanName);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === cleanName) personShifts.push({s, idx}); });
+                    
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) {
                             s.start = currentShift.start; s.end = currentShift.end;
                             s.isCic = (currentShift.isCic || s.isCic);
@@ -971,18 +1037,48 @@
             }
             if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    const existingIdx = shifts.findIndex(s => s.name === n);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
                 }
             });
             if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
                 if(n) {
-                    const existingIdx = shifts.findIndex(s => s.name === n);
-                    if (existingIdx !== -1) {
-                        const s = shifts[existingIdx];
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+                    if (targetIndex !== -1) {
+                        const s = shifts[targetIndex];
                         if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
                     } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
                 }
@@ -1002,13 +1098,31 @@
         processBuffer(); saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
     }
 
-    function openPasteModal() { 
-        document.getElementById('pasteModal').style.display = 'flex';
-        setTimeout(() => document.getElementById('pasteInput').focus(), 50);
+    function processPreDuty() {
+        const text = document.getElementById('preDutyInput').value;
+        const tokens = text.split(/[\s,]+/);
+        pushHistory(); 
+        
+        tokens.forEach(token => {
+            let clean = token.trim();
+            if (clean.length === 3 && clean.startsWith('8')) {
+                clean = clean.substring(1);
+            }
+            if (/^[a-zA-Z]{2}$/.test(clean)) {
+                const initials = clean.toUpperCase();
+                shifts.forEach(s => {
+                    if (s.name.toUpperCase() === initials) {
+                        s.preDutyWx = true;
+                    }
+                });
+            }
+        });
+
+        saveData(false);
+        closeModal('preDutyModal');
+        document.getElementById('preDutyInput').value = '';
     }
 
-    function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
-    
     function processRequests() {
         const text = document.getElementById('requestInput').value; 
         const lines = text.split(/\n/);
