@@ -549,7 +549,8 @@
     window.triggerPreview = function(idx) {
         const req = requests[idx];
         const li = document.getElementById('pendingList').children[idx];
-        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo);
+        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
     };
 
     function toggleMenu() { const m = document.getElementById('menuDropdown'); m.style.display = m.style.display === 'flex' ? 'none' : 'flex'; }
@@ -626,40 +627,34 @@
     function updateEmployeeStatuses(now, startBoundary, endBoundary) {
         let currentOffset = -1;
         if (now >= startBoundary && now < endBoundary) {
-            currentOffset = (now - startBoundary) / 1000 / 60; // Minutes since start
+            currentOffset = (now - startBoundary) / 1000 / 60; 
         } else if (now > endBoundary) {
-            currentOffset = 9999; // Past
+            currentOffset = 9999; 
         } else {
-            currentOffset = -1; // Future
+            currentOffset = -1; 
         }
 
         shifts.forEach((s, idx) => {
             const card = document.getElementById(`emp-card-${idx}`);
             if (!card) return;
 
-            // Remove all possible status classes first
             card.classList.remove('card-active', 'card-over', 'card-future');
-            
             const bar = document.getElementById(`shift-bar-${idx}`);
             if (bar) bar.classList.remove('bar-over');
 
             if (currentOffset === 9999) {
-                // Entire day is over
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
                 return;
             }
             if (currentOffset === -1) {
-                // Future date
                 return; 
             }
 
             const meta = calculateShiftMeta(s);
             if (currentOffset >= meta.start && currentOffset < meta.end) {
-                // Active now
                 card.classList.add('card-active');
             } else if (currentOffset >= meta.end) {
-                // Shift finished
                 card.classList.add('card-over');
                 if (bar) bar.classList.add('bar-over');
             }
@@ -1009,10 +1004,10 @@
         }
     }
 
-    function addShift(name, start, end, type, isCic) {
+    function addShift(name, start, end, type, isCic, isStaffing = false) {
         if (!name) return;
         
-        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
 
         // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
@@ -1134,6 +1129,9 @@
         
         if(!manualContent) {
             saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
+        } else {
+            saveData(false);
+            loadData(); 
         }
     }
 
@@ -1278,7 +1276,7 @@
         document.getElementById('smartPasteInput').value = '';
     }
 
-    function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr) {
+    function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr, isTos) {
         let idx = shifts.findIndex(s => s.name === cpc);
         
         // 1. CLEAR EXISTING TIMER IF ANY (This fixes the race condition)
@@ -1334,7 +1332,15 @@
                     } 
                 }
             } 
-            else { if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } }
+            else { 
+                if (isTos) {
+                    s.tosStart = normalizeTime(fromStr);
+                    s.tosEnd = normalizeTime(toStr);
+                } else {
+                    if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } 
+                    else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } 
+                }
+            }
             
             render(); 
             
@@ -1379,10 +1385,10 @@
         return { start, end, isCic };
     }
 
-    function addShift(name, start, end, type, isCic) {
+    function addShift(name, start, end, type, isCic, isStaffing = false) {
         if (!name) return;
         
-        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
 
         // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
@@ -1511,6 +1517,31 @@
                 tosStart = parts[0]; tosEnd = parts[1];
             }
             
+            // 20:00 Rule for Manual Edits
+            if (h >= 20) {
+               // We must remove this shift from current view and move to previous day
+               let s = shifts[idx];
+               const newShift = {
+                   ...s,
+                   start: startVal,
+                   end: endVal,
+                   notes: document.getElementById('editNotes').value,
+                   leaveStart, leaveEnd, tosStart, tosEnd,
+                   isStaffing: document.getElementById('editStaffing').checked,
+                   assignedTrainer: document.getElementById('editAssignedTrainer').value
+               };
+
+               // Remove from current
+               shifts.splice(idx, 1);
+               // Add to prev
+               let prevDate = getPreviousDate(currentDate);
+               addShiftToStorage(prevDate, newShift);
+               
+               saveData(false); 
+               closeModal('editModal');
+               return;
+            }
+
             shifts[idx] = {
                 ...shifts[idx], 
                 start: startVal, 
@@ -1526,7 +1557,6 @@
             saveData(false); closeModal('editModal');
         }
     }
-    window.onclick = function(e) { if (e.target.classList.contains('modal-overlay')) e.target.style.display = "none"; }
 </script>
 </body>
 </html>
