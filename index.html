@@ -57,7 +57,7 @@
 
         h2 { font-size: 1.2rem; margin-right: 10px; white-space: nowrap;}
 
-        /* NEW STATS STYLING */
+        /* STATS STYLING */
         .stats-container {
             display: flex;
             gap: 15px;
@@ -176,7 +176,6 @@
 
         .wx-badge {
             position: absolute; 
-            /* Left is handled inline now */
             top: 0; bottom: 0; display: flex; align-items: center;
             color: white; font-size: 0.7rem; font-weight: 900; z-index: 20;
             text-shadow: 0 1px 2px rgba(0,0,0,0.5); white-space: nowrap;
@@ -1101,17 +1100,16 @@
         
         let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '', preDutyWx: false };
 
-        // 20:00 RULE Check - STRICT ENFORCEMENT
+        // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
         if (h >= 20) {
-            // Move to Previous Day ONLY
+            // Move to Previous Day
             let prevDate = getPreviousDate(currentDate);
             addShiftToStorage(prevDate, newShift);
-            return; // EXIT FUNCTION: Do NOT add to current day shifts array
-        } 
-        
-        // Only if < 20:00, add to current day
-        shifts.push(newShift);
+        } else {
+            // Stay on Current Day
+            shifts.push(newShift);
+        }
     }
     
     function processPaste(manualContent) {
@@ -1122,58 +1120,49 @@
         function processBuffer() {
             if (!currentShift) return;
             let cleanData = dataBuffer.filter(l => !l.includes(' of '));
-            
-            // Separate CPCs and Devs based on separator line
-            let cpcLines = [];
-            let devLines = [];
-            let isDevSection = false;
-
-            cleanData.forEach(line => {
-                if (line.trim() === '-') {
-                    isDevSection = true;
-                } else if (isDevSection) {
-                    devLines.push(line);
-                } else {
-                    cpcLines.push(line);
-                }
-            });
-
-            // ROW 0: CPCs -> Staffing
-            if (cpcLines.length > 0) {
-                let names = cpcLines[0].split(/[\s,\t]+/);
+            if (cleanData[0]) {
+                let names = cleanData[0].split(/[\s,\t]+/);
                 names.forEach(n => {
-                    if(!n || n === '-') return; 
-                    let isCic = currentShift.isCic; let cleanName = n;
+                    if(!n) return; let isCic = currentShift.isCic; let cleanName = n;
                     if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
                     
-                    // --- DUPLICATE/UPDATE CHECK START ---
-                    let targetIndex = -1;
-                    for(let i=0; i<shifts.length; i++) {
-                        if(shifts[i].name === cleanName && !shifts[i]._hidden) {
-                            // Check timing overlap to identify "same shift"
-                            const oldMeta = calculateShiftMeta(shifts[i]);
-                            const newStartOffset = timeToOffset(currentShift.start);
-                            const newEndOffset = timeToOffset(currentShift.end);
-                            let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                            const newAbsEnd = newStartOffset + newDur;
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === cleanName) personShifts.push({s, idx}); });
+                    
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
 
-                            let gap1 = newStartOffset - oldMeta.end;
-                            let gap2 = oldMeta.start - newAbsEnd;
-                            const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                            
-                            if(!isDistinct) { targetIndex = i; break; }
-                        }
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
                     }
 
                     if (targetIndex !== -1) {
                         // Check if NEW time requires move (>= 20:00)
                         let newH = parseInt(currentShift.start.substring(0, 2));
+                        
                         if (newH >= 20) {
-                            // REMOVE from current day, ADD via addShift (sends to prev)
+                            // It moved to late night. It must leave the current day.
+                            // 1. Get the data
+                            let s = shifts[targetIndex];
+                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end, isCic: (currentShift.isCic || s.isCic) };
+                            
+                            // 2. Remove from current array
                             shifts.splice(targetIndex, 1);
-                            addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic, true);
+                            
+                            // 3. Send to previous day
+                            let prevDate = getPreviousDate(currentDate);
+                            addShiftToStorage(prevDate, updatedShift);
                         } else {
-                            // Update in place
+                            // It stays on current day, just update times
                             const s = shifts[targetIndex];
                             if (s.start !== currentShift.start || s.end !== currentShift.end) {
                                 s.start = currentShift.start; s.end = currentShift.end;
@@ -1181,50 +1170,76 @@
                             }
                         }
                     } else {
-                        addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic, true);
-                    }
-                    // --- DUPLICATE/UPDATE CHECK END ---
-                });
-            }
-
-            // ROW 2: Devs -> Trainees (Not Staffing)
-            if (devLines.length > 0) {
-                let devNames = devLines[0].split(/[\s,\t]+/);
-                devNames.forEach(n => { 
-                    if(n && n !== '-') {
-                        // Similar Duplicate Check logic for Trainees
-                        let targetIndex = -1;
-                        for(let i=0; i<shifts.length; i++) {
-                            if(shifts[i].name === n && !shifts[i]._hidden) {
-                                const oldMeta = calculateShiftMeta(shifts[i]);
-                                const newStartOffset = timeToOffset(currentShift.start);
-                                const newEndOffset = timeToOffset(currentShift.end);
-                                let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                                const newAbsEnd = newStartOffset + newDur;
-                                let gap1 = newStartOffset - oldMeta.end;
-                                let gap2 = oldMeta.start - newAbsEnd;
-                                const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                                if(!isDistinct) { targetIndex = i; break; }
-                            }
-                        }
-
-                        if (targetIndex !== -1) {
-                            let newH = parseInt(currentShift.start.substring(0, 2));
-                            if (newH >= 20) {
-                                shifts.splice(targetIndex, 1);
-                                addShift(n, currentShift.start, currentShift.end, 'trainee', false, false);
-                            } else {
-                                const s = shifts[targetIndex];
-                                if (s.start !== currentShift.start || s.end !== currentShift.end) { 
-                                    s.start = currentShift.start; s.end = currentShift.end; 
-                                }
-                            }
-                        } else { 
-                            addShift(n, currentShift.start, currentShift.end, 'trainee', false, false); 
-                        }
+                        addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
                     }
                 });
             }
+            if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
+                if(n) {
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+                    if (targetIndex !== -1) {
+                         let newH = parseInt(currentShift.start.substring(0, 2));
+                        if (newH >= 20) {
+                            let s = shifts[targetIndex];
+                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end };
+                            shifts.splice(targetIndex, 1); 
+                            let prevDate = getPreviousDate(currentDate);
+                            addShiftToStorage(prevDate, updatedShift);
+                        } else {
+                            const s = shifts[targetIndex];
+                            if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                        }
+                    } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
+                }
+            });
+            if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
+                if(n) {
+                    let personShifts = [];
+                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
+                    const newStartOffset = timeToOffset(currentShift.start);
+                    const newEndOffset = timeToOffset(currentShift.end);
+                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
+                    const newAbsEnd = newStartOffset + newDur;
+                    let targetIndex = -1;
+                    for(let i=0; i<personShifts.length; i++) {
+                        const {s, idx} = personShifts[i];
+                        if(s._hidden) continue;
+                        const oldMeta = calculateShiftMeta(s);
+                        let gap1 = newStartOffset - oldMeta.end;
+                        let gap2 = oldMeta.start - newAbsEnd;
+                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
+                        if(!isDistinct) { targetIndex = idx; break; }
+                    }
+                    if (targetIndex !== -1) {
+                        let newH = parseInt(currentShift.start.substring(0, 2));
+                        if (newH >= 20) {
+                            let s = shifts[targetIndex];
+                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end };
+                            shifts.splice(targetIndex, 1); 
+                            let prevDate = getPreviousDate(currentDate);
+                            addShiftToStorage(prevDate, updatedShift);
+                        } else {
+                            const s = shifts[targetIndex];
+                            if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                        }
+                    } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
+                }
+            });
         }
         pushHistory(); 
         lines.forEach(line => {
@@ -1531,9 +1546,21 @@
         return { start, end, isCic };
     }
 
-    function addShift(name, start, end, type, isCic, isStaffing = false) {
+    function addShift(name, start, end, type, isCic) {
         if (!name) return;
-        shifts.push({ name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '', preDutyWx: false });
+        
+        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '', preDutyWx: false };
+
+        // 20:00 RULE Check
+        let h = parseInt(start.substring(0, 2));
+        if (h >= 20) {
+            // Move to Previous Day
+            let prevDate = getPreviousDate(currentDate);
+            addShiftToStorage(prevDate, newShift);
+        } else {
+            // Stay on Current Day
+            shifts.push(newShift);
+        }
     }
 
     // Modals & Utils
