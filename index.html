@@ -16,10 +16,11 @@
             --bar-leave: #9ca3af;      /* Grey */
             --bar-tos: #22c55e;        /* Green */
             --bar-hover: #2563eb;
-            --danger-color: #ef4444;
-            --pending-color: #d35400;  /* Orange for Pending */
-            --denied-color: #c0392b;   /* Red for Denied */
-            --last-hour-color: #fcd34d; /* Yellow */
+            --danger-color: #dc2626;   /* Darker Red for text readability */
+            --warning-color: #d97706;  /* Amber/Dark Yellow for text readability */
+            --pending-color: #d35400; 
+            --denied-color: #c0392b;   
+            --last-hour-color: #fcd34d; 
             
             --training-stripe: repeating-linear-gradient(
                 45deg,
@@ -51,9 +52,29 @@
             gap: 15px;
             height: 60px;
             flex-shrink: 0;
+            overflow-x: auto;
         }
 
-        h2 { font-size: 1.2rem; margin-right: auto; }
+        h2 { font-size: 1.2rem; margin-right: 10px; white-space: nowrap;}
+
+        /* NEW STATS STYLING */
+        .stats-container {
+            display: flex;
+            gap: 15px;
+            background: #f3f4f6;
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid #ddd;
+            font-size: 0.9rem;
+            font-weight: 800;
+            margin-right: auto; 
+            white-space: nowrap;
+        }
+        .stat-box { display: flex; align-items: center; color: black; /* Default Black */ }
+        
+        /* Conditional Colors */
+        .stat-warning { color: var(--warning-color) !important; } 
+        .stat-danger { color: var(--danger-color) !important; }
 
         input[type="date"] { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
 
@@ -65,12 +86,13 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.9rem;
+            white-space: nowrap;
         }
         button:hover { opacity: 0.9; }
         button:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.7; }
         button.secondary { background-color: #6b7280; }
         button.action-btn { background-color: #0d9488; } 
-        button.smart-btn { background-color: #8b5cf6; font-weight: bold;} /* Purple for Smart Paste */
+        button.smart-btn { background-color: #8b5cf6; font-weight: bold;} 
 
         .menu-container { position: relative; }
         .menu-dropdown {
@@ -282,6 +304,11 @@
     </div>
     <h2>Shift Visualizer</h2>
     
+    <div class="stats-container">
+        <span class="stat-box day">Day: 0</span>
+        <span class="stat-box eve">Eve: 0</span>
+    </div>
+
     <button onclick="openPreDutyModal()">Paste Pre-Duty WX</button>
     <button onclick="undo()" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button onclick="redo()" id="btnRedo" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
@@ -730,6 +757,60 @@
         return sorted;
     }
 
+    // --- ADDED: SHIFT STATS LOGIC ---
+    function updateShiftStats() {
+        let dayCount = 0;
+        let eveCount = 0;
+        
+        let [y, m, d] = currentDate.split('-').map(Number);
+        let currentDayObj = new Date(y, m - 1, d);
+        let dayOfWeek = currentDayObj.getDay(); // 0=Sun, 6=Sat
+
+        // DOM Elements
+        const dayEl = document.querySelector('.stat-box.day');
+        const eveEl = document.querySelector('.stat-box.eve');
+
+        // Reset classes
+        dayEl.className = 'stat-box day';
+        eveEl.className = 'stat-box eve';
+
+        shifts.forEach(s => {
+            if(s._hidden) return;
+
+            let isTrainee = s.type === 'trainee' || trainees.includes(s.name);
+            if (s.isStaffing) isTrainee = false; 
+            if (isTrainee) return;
+
+            // Exclude 20:00+ starts if any slipped in
+            let hStart = parseInt(s.start.substring(0,2));
+            if (hStart >= 20) return;
+
+            let meta = calculateShiftMeta(s);
+            // 19:00 relative to 04:00 is (19-4)*60 = 900 minutes.
+            if (meta.end >= 900) {
+                eveCount++;
+            } else {
+                dayCount++;
+            }
+        });
+
+        // Day Logic (Sun-Sat): <= 6 Red, == 7 Yellow
+        if (dayCount <= 6) dayEl.classList.add('stat-danger');
+        else if (dayCount === 7) dayEl.classList.add('stat-warning');
+
+        // Eve Logic
+        if (dayOfWeek === 6) { // Saturday: <= 6 Red, == 7 Yellow
+            if (eveCount <= 6) eveEl.classList.add('stat-danger');
+            else if (eveCount === 7) eveEl.classList.add('stat-warning');
+        } else { // Sun-Fri: <= 7 Red, == 8 Yellow
+            if (eveCount <= 7) eveEl.classList.add('stat-danger');
+            else if (eveCount === 8) eveEl.classList.add('stat-warning');
+        }
+
+        dayEl.innerText = `Day: ${dayCount}`;
+        eveEl.innerText = `Eve: ${eveCount}`;
+    }
+
     function render() {
         const graphBody = document.getElementById('graphBody'); const listBody = document.getElementById('employeeList');
         graphBody.innerHTML = ''; listBody.innerHTML = '';
@@ -844,6 +925,7 @@
             listBody.appendChild(card);
         });
         updateStaffCounts();
+        updateShiftStats(); // Added call
         updateCurrentTime(); // Ensure status colors are correct immediately
     }
 
@@ -1004,10 +1086,10 @@
         }
     }
 
-    function addShift(name, start, end, type, isCic, isStaffing = false) {
+    function addShift(name, start, end, type, isCic) {
         if (!name) return;
         
-        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
 
         // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
@@ -1200,7 +1282,39 @@
             const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
             
             if (isApproved) {
-                if (isShiftChg) return; 
+                // If it's a shift change, we must update the start time and potentially move day
+                let updateTargetIdx = -1;
+                if (isShiftChg) {
+                    const idx = shifts.findIndex(s => s.name === cpc);
+                    if (idx !== -1) {
+                        // We found the person. Update their shift time.
+                        if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
+                        
+                        let p = parseShiftStringForPreview(to);
+                        if (p) {
+                            // Check if NEW start time >= 20:00
+                            let h = parseInt(p.start.substring(0,2));
+                            if (h >= 20) {
+                                // MOVE TO PREV DAY
+                                const shiftToMove = { ...shifts[idx], start: p.start, end: p.end, isCic: p.isCic };
+                                shifts.splice(idx, 1); // Remove from current
+                                let prevDate = getPreviousDate(currentDate);
+                                addShiftToStorage(prevDate, shiftToMove);
+                                changesMade = true;
+                            } else {
+                                // Update in place
+                                shifts[idx].start = p.start;
+                                shifts[idx].end = p.end;
+                                shifts[idx].isCic = p.isCic;
+                                changesMade = true;
+                            }
+                        }
+                    }
+                    // Continue to next request
+                    return; 
+                }
+
+                // Regular Logic for Leave/Tos
                 const idx = shifts.findIndex(s => s.name === cpc);
                 if (idx !== -1) {
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
@@ -1385,10 +1499,10 @@
         return { start, end, isCic };
     }
 
-    function addShift(name, start, end, type, isCic, isStaffing = false) {
+    function addShift(name, start, end, type, isCic) {
         if (!name) return;
         
-        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
+        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '' };
 
         // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
