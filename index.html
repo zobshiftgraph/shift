@@ -956,7 +956,9 @@
 
                 // 1. Check Main Shift
                 let isTrainee = s.type === 'trainee' || trainees.includes(s.name); 
-                if (s.isStaffing) isTrainee = false;
+                
+                // NEW: Use the explicit flag
+                if (!s.isStaffing) isTrainee = true;
 
                 if (!isTrainee) {
                     if (overlap > 0) {
@@ -1113,157 +1115,172 @@
     }
     
     function processPaste(manualContent) {
-        let text = manualContent || document.getElementById('pasteInput').value; 
+        let text = manualContent || document.getElementById('smartPasteInput').value; 
+        if(!text.trim()) text = document.getElementById('pasteInput').value; 
+
+        // 1. Separate Requests
+        if (text.includes('===REQUESTS_START===')) {
+            const parts = text.split('===REQUESTS_START===');
+            processRequests(parts[1]); 
+            text = parts[0]; 
+        }
+        
+        // 2. Clean Header
+        text = text.replace('===SCHEDULE_START===', '').trim();
         text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
-        let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l);
-        let currentShift = null; let dataBuffer = []; const shiftRegex = /^([cC])?(\d{3,4})[fF]?(-(\d{1,2}))?[fF]?$/;
-        function processBuffer() {
-            if (!currentShift) return;
-            let cleanData = dataBuffer.filter(l => !l.includes(' of '));
-            if (cleanData[0]) {
-                let names = cleanData[0].split(/[\s,\t]+/);
-                names.forEach(n => {
-                    if(!n) return; let isCic = currentShift.isCic; let cleanName = n;
-                    if (cleanName.includes('(') && cleanName.includes(')')) { isCic = true; cleanName = cleanName.replace(/[()]/g, '').trim(); }
-                    
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === cleanName) personShifts.push({s, idx}); });
-                    
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
 
-                    let targetIndex = -1;
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        const oldMeta = calculateShiftMeta(s);
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        if(!isDistinct) { targetIndex = idx; break; }
-                    }
+        // 3. Robust Block Parser
+        // We find every Time Header. The content between this header and the next header (or end of file)
+        // belongs to this shift block.
+        // We split that content by newlines. 
+        // Line 1 = CPC, Line 2 = Sup, Line 3 = Dev.
+        
+        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?$/;
+        let lines = text.split(/\n/);
+        let currentBlock = null;
+        let blocks = [];
 
-                    if (targetIndex !== -1) {
-                        // Check if NEW time requires move (>= 20:00)
-                        let newH = parseInt(currentShift.start.substring(0, 2));
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            // Important: We do not skip empty lines here because empty lines are separators in the block.
+            
+            let match = line.match(timeHeaderRegex);
+            if (match) {
+                // New Block Found
+                if (currentBlock) blocks.push(currentBlock);
+                
+                let t = match[1]; 
+                let h = parseInt(t.substring(0, 2)); 
+                let m = parseInt(t.substring(2, 4));
+                let dur = 8;
+                if (match[3]) dur = parseInt(match[3]); 
+                
+                let eH = (h + dur) % 24;
+                
+                currentBlock = {
+                    shift: { 
+                        start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                        end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                        isCic: false 
+                    },
+                    dataLines: []
+                };
+            } else if (currentBlock) {
+                // Add content to current block
+                currentBlock.dataLines.push(line);
+            }
+        }
+        if (currentBlock) blocks.push(currentBlock);
+
+        if (blocks.length === 0) {
+            alert("No valid shifts found in paste data.");
+            return;
+        }
+
+        pushHistory(); 
+
+        blocks.forEach(blk => {
+            let sData = blk.shift;
+            let dLines = blk.dataLines; 
+            
+            // dLines[0] = CPCs
+            // dLines[1] = Sups
+            // dLines[2] = Devs
+            // Any further lines are ignored or extra spacing
+            
+            // --- 1. CPCs (Counted) ---
+            if (dLines[0]) {
+                dLines[0].split(/[\s,\t]+/).forEach(n => {
+                    if (n && n !== "-") {
+                        let isCic = sData.isCic; let name = n;
+                        if (n.includes('(') && n.includes(')')) { isCic = true; name = n.replace(/[()]/g, ''); }
                         
-                        if (newH >= 20) {
-                            // It moved to late night. It must leave the current day.
-                            // 1. Get the data
-                            let s = shifts[targetIndex];
-                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end, isCic: (currentShift.isCic || s.isCic) };
-                            
-                            // 2. Remove from current array
-                            shifts.splice(targetIndex, 1);
-                            
-                            // 3. Send to previous day
-                            let prevDate = getPreviousDate(currentDate);
-                            addShiftToStorage(prevDate, updatedShift);
+                        // Check for existing to update or add
+                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                        if (idx !== -1) {
+                             // Update logic (move if needed)
+                             let oldH = parseInt(sData.start.substring(0,2));
+                             if (oldH >= 20) {
+                                 let s = shifts[idx];
+                                 let up = {...s, start: sData.start, end: sData.end, isCic: (isCic || s.isCic)};
+                                 shifts.splice(idx, 1);
+                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
+                             } else {
+                                 shifts[idx].start = sData.start; 
+                                 shifts[idx].end = sData.end;
+                                 shifts[idx].isCic = (isCic || shifts[idx].isCic);
+                             }
                         } else {
-                            // It stays on current day, just update times
-                            const s = shifts[targetIndex];
-                            if (s.start !== currentShift.start || s.end !== currentShift.end) {
-                                s.start = currentShift.start; s.end = currentShift.end;
-                                s.isCic = (currentShift.isCic || s.isCic);
-                            }
+                            addShift(name, sData.start, sData.end, 'standard', isCic, true);
                         }
-                    } else {
-                        addShift(cleanName, currentShift.start, currentShift.end, 'standard', isCic);
                     }
                 });
             }
-            if (cleanData[1]) cleanData[1].split(/[\s,\t]+/).forEach(n => { 
-                if(n) {
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
-                    let targetIndex = -1;
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        const oldMeta = calculateShiftMeta(s);
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        if(!isDistinct) { targetIndex = idx; break; }
-                    }
-                    if (targetIndex !== -1) {
-                         let newH = parseInt(currentShift.start.substring(0, 2));
-                        if (newH >= 20) {
-                            let s = shifts[targetIndex];
-                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end };
-                            shifts.splice(targetIndex, 1); 
-                            let prevDate = getPreviousDate(currentDate);
-                            addShiftToStorage(prevDate, updatedShift);
+
+            // --- 2. Sups (Not Counted) ---
+            if (dLines[1]) {
+                dLines[1].split(/[\s,\t]+/).forEach(n => {
+                    if (n && n !== "-") {
+                        let name = n.replace(/[()]/g, ''); // Clean parens (NP) -> NP
+                        
+                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                        if (idx !== -1) {
+                             let oldH = parseInt(sData.start.substring(0,2));
+                             if (oldH >= 20) {
+                                 let s = shifts[idx];
+                                 let up = {...s, start: sData.start, end: sData.end, isCic: true};
+                                 shifts.splice(idx, 1);
+                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
+                             } else {
+                                 shifts[idx].start = sData.start; 
+                                 shifts[idx].end = sData.end;
+                                 shifts[idx].isCic = true;
+                             }
                         } else {
-                            const s = shifts[targetIndex];
-                            if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                            // Add Sup: isStaffing = false
+                            addShift(name, sData.start, sData.end, 'standard', true, false);
                         }
-                    } else { addShift(n, currentShift.start, currentShift.end, 'standard', false); }
-                }
-            });
-            if (cleanData[2]) cleanData[2].split(/[\s,\t]+/).forEach(n => { 
-                if(n) {
-                    let personShifts = [];
-                    shifts.forEach((s, idx) => { if(s.name === n) personShifts.push({s, idx}); });
-                    const newStartOffset = timeToOffset(currentShift.start);
-                    const newEndOffset = timeToOffset(currentShift.end);
-                    let newDur = newEndOffset - newStartOffset; if(newDur < 0) newDur += 1440;
-                    const newAbsEnd = newStartOffset + newDur;
-                    let targetIndex = -1;
-                    for(let i=0; i<personShifts.length; i++) {
-                        const {s, idx} = personShifts[i];
-                        if(s._hidden) continue;
-                        const oldMeta = calculateShiftMeta(s);
-                        let gap1 = newStartOffset - oldMeta.end;
-                        let gap2 = oldMeta.start - newAbsEnd;
-                        const isDistinct = (gap1 >= 600) || (gap2 >= 600);
-                        if(!isDistinct) { targetIndex = idx; break; }
                     }
-                    if (targetIndex !== -1) {
-                        let newH = parseInt(currentShift.start.substring(0, 2));
-                        if (newH >= 20) {
-                            let s = shifts[targetIndex];
-                            let updatedShift = { ...s, start: currentShift.start, end: currentShift.end };
-                            shifts.splice(targetIndex, 1); 
-                            let prevDate = getPreviousDate(currentDate);
-                            addShiftToStorage(prevDate, updatedShift);
+                });
+            }
+
+            // --- 3. Devs (Not Counted) ---
+            if (dLines[2]) {
+                dLines[2].split(/[\s,\t]+/).forEach(n => {
+                    if (n && n !== "-") {
+                        let idx = shifts.findIndex(x => x.name === n && !x._hidden);
+                        if (idx !== -1) {
+                             let oldH = parseInt(sData.start.substring(0,2));
+                             if (oldH >= 20) {
+                                 let s = shifts[idx];
+                                 let up = {...s, start: sData.start, end: sData.end};
+                                 shifts.splice(idx, 1);
+                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
+                             } else {
+                                 shifts[idx].start = sData.start; 
+                                 shifts[idx].end = sData.end;
+                             }
                         } else {
-                            const s = shifts[targetIndex];
-                            if (s.start !== currentShift.start || s.end !== currentShift.end) { s.start = currentShift.start; s.end = currentShift.end; }
+                            addShift(n, sData.start, sData.end, 'trainee', false, false);
                         }
-                    } else { addShift(n, currentShift.start, currentShift.end, 'trainee', false); }
-                }
-            });
-        }
-        pushHistory(); 
-        lines.forEach(line => {
-            const match = line.match(shiftRegex);
-            if (match) {
-                processBuffer(); dataBuffer = [];
-                let isCicHeader = !!match[1];
-                let t = match[2].padStart(4, '0'); let h = parseInt(t.substring(0, 2)); let m = parseInt(t.substring(2, 4));
-                let dur = match[4] ? parseInt(match[4]) : 8; let eH = (h + dur) % 24;
-                currentShift = { start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, isCic: isCicHeader };
-            } else { dataBuffer.push(line); }
+                    }
+                });
+            }
         });
-        processBuffer(); 
-        
-        if(!manualContent) {
-            saveData(false); closeModal('pasteModal'); document.getElementById('pasteInput').value = '';
-        } else {
-            // IF manual/smart paste, we reload data to reflect changes immediately
-            // because addShift might have written to previous day OR current day
-            saveData(false);
-            loadData(); // REFRESH from storage
+
+        if(!manualContent) { 
+            saveData(false); 
+            closeModal('smartPasteModal'); 
+            document.getElementById('smartPasteInput').value = ''; 
+        } else { 
+            saveData(false); 
+            loadData(); 
+            closeModal('smartPasteModal'); 
+            document.getElementById('smartPasteInput').value = '';
         }
     }
-
+    
+    // ... [Rest of code is unchanged] ...
     function processPreDuty(manualContent) {
         const text = manualContent || document.getElementById('preDutyInput').value;
         const tokens = text.split(/[\s,]+/);
