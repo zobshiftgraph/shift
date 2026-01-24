@@ -11,15 +11,15 @@
             --text-color: #333;
             --accent-color: #3b82f6;
             --grid-line-color: #e5e7eb;
-            --bar-color: #60a5fa;      /* Standard Blue */
-            --bar-trainee: #a855f7;    /* Trainee Purple */
-            --bar-leave: #9ca3af;      /* Grey */
-            --bar-tos: #22c55e;        /* Green */
+            --bar-color: #60a5fa;       /* Standard Blue */
+            --bar-trainee: #a855f7;     /* Trainee Purple */
+            --bar-leave: #9ca3af;       /* Grey */
+            --bar-tos: #22c55e;         /* Green */
             --bar-hover: #2563eb;
-            --danger-color: #dc2626;   /* Darker Red */
-            --warning-color: #d97706;  /* Amber */
+            --danger-color: #dc2626;    /* Darker Red */
+            --warning-color: #d97706;   /* Amber */
             --pending-color: #d35400; 
-            --denied-color: #c0392b;   
+            --denied-color: #c0392b;    
             --last-hour-color: #fcd34d; 
             
             --training-stripe: repeating-linear-gradient(
@@ -52,7 +52,9 @@
             gap: 15px;
             height: 60px;
             flex-shrink: 0;
-            overflow-x: auto;
+            overflow: visible; 
+            position: relative; 
+            z-index: 1000;      
         }
 
         h2 { font-size: 1.2rem; margin-right: 10px; white-space: nowrap;}
@@ -709,15 +711,31 @@
         if(parts.length < 2) return { start: '', end: '' };
         return { start: normalizeTime(parts[0]), end: normalizeTime(parts[1]) };
     }
-    function getOverlap(start1, end1, start2, end2) { if(start1 == null || end1 == null) return 0; let s = Math.max(start1, start2); let e = Math.min(end1, end2); return Math.max(0, e - s); }
+    
+    // Updated robust getOverlap
+    function getOverlap(start1, end1, start2, end2) {
+        if (start1 == null || end1 == null) return 0;
+        let s = Math.max(start1, start2);
+        let e = Math.min(end1, end2);
+        return Math.max(0, e - s);
+    }
+
     function calculateShiftMeta(shift) {
         const startOffset = timeToOffset(shift.start); const endOffset = timeToOffset(shift.end);
         let duration = endOffset - startOffset; if (duration < 0) duration += (24 * 60); 
-        let yEndMins = endOffset; let yStartMins = endOffset - 60; 
-        if (shift.leaveStart && shift.leaveEnd) {
-            const ls = timeToOffset(shift.leaveStart); const le = timeToOffset(shift.leaveEnd);
-            let diff = endOffset - le; if (diff < -1000) diff += 1440; 
-            if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
+        
+        let yEndMins = endOffset; 
+        let yStartMins = endOffset - 60; 
+
+        // Check multiple leave ranges for yellow bar logic
+        if (shift.leaveRanges && shift.leaveRanges.length > 0) {
+            shift.leaveRanges.forEach(r => {
+                const ls = timeToOffset(r.start); 
+                const le = timeToOffset(r.end);
+                let diff = endOffset - le; if (diff < -1000) diff += 1440; 
+                // If this leave block ends within 30 mins of shift end, it truncates the shift visual
+                if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
+            });
         }
         return { start: startOffset, end: startOffset + duration, yStart: yStartMins, yEnd: yEndMins };
     }
@@ -828,11 +846,12 @@
             
             const row = document.createElement('div'); row.className = 'shift-row';
             let workStart = meta.start; let workEnd = meta.end;
-            if (shift.leaveStart && shift.leaveEnd) {
-                const ls = timeToOffset(shift.leaveStart); const le = timeToOffset(shift.leaveEnd);
-                let seg1 = ls - meta.start; if(seg1<0) seg1=0; let seg2 = meta.end - le; if(seg2<0) seg2=0;
-                if (seg1 >= seg2 && seg1 > 0) workEnd = ls; else if (seg2 > 0) workStart = le;
-            }
+            
+            // Calc Work Start/End based on last Leave range (Simplification for visual text alignment)
+            // Ideally we'd scan all ranges, but for text alignment we usually care about the "main" gap.
+            // Keeping mostly standard for text position unless specific range abuts.
+            // (Full multiple-leave gap calculation for text-centering is complex, sticking to base duration is usually fine)
+            
             let workDuration = workEnd - workStart;
             let textLeftPct = ((workStart - meta.start) / duration) * 100; let textWidthPct = (workDuration / duration) * 100;
             const barWidthPct = (duration / TOTAL_MINUTES) * 100; const barLeftPct = (meta.start / TOTAL_MINUTES) * 100;
@@ -859,30 +878,42 @@
                 }
             });
             
-            // PRE-DUTY WX BADGE LOGIC UPDATED HERE
+            // PRE-DUTY WX BADGE LOGIC
             let wxHtml = '';
             if (shift.preDutyWx) {
-                // Determine Left Offset based on Work Start
                 let wxLeftPct = 0;
-                // If leave is at the start (workStart > meta.start), push badge to right
                 if (workStart > meta.start) {
                     wxLeftPct = ((workStart - meta.start) / duration) * 100;
                 }
-                
                 wxHtml = `<div class="wx-badge" style="left: calc(${wxLeftPct}% + 4px)"><span style="color:#4ade80; margin-right:2px;">✓</span> WX</div>`;
             }
 
             mainBar.innerHTML = `${wxHtml}<span class="bar-text-container" style="left: ${textLeftPct}%; width: ${textWidthPct}%;"><span class="bar-initials">${displayName}</span><span class="bar-times">${timeLabel}</span></span>${yellowHtml}${stripeHtml}`;
             row.appendChild(mainBar);
 
-            if (shift.leaveStart && shift.leaveEnd) {
-                const lb = createBarElement(shift.leaveStart, shift.leaveEnd, 'leave-bar', 'LV', `${shift.leaveStart}-${shift.leaveEnd}`);
-                if(lb) { if (shift._previewing) lb.classList.add('preview-highlight'); lb.onclick = () => openEditModal(index); row.appendChild(lb); }
+            // RENDER MULTIPLE LEAVE BARS
+            if (shift.leaveRanges && shift.leaveRanges.length > 0) {
+                shift.leaveRanges.forEach(r => {
+                    const lb = createBarElement(r.start, r.end, 'leave-bar', 'LV', `${r.start}-${r.end}`);
+                    if(lb) { 
+                        if (shift._previewing) lb.classList.add('preview-highlight'); 
+                        lb.onclick = () => openEditModal(index); 
+                        row.appendChild(lb); 
+                    }
+                });
             }
-            if (shift.tosStart && shift.tosEnd) {
-                const tb = createBarElement(shift.tosStart, shift.tosEnd, 'tos-bar', 'TOS', `${shift.tosStart}-${shift.tosEnd}`);
-                if(tb) { tb.onclick = () => openEditModal(index); row.appendChild(tb); }
+
+            // RENDER MULTIPLE TOS BARS
+            if (shift.tosRanges && shift.tosRanges.length > 0) {
+                shift.tosRanges.forEach(r => {
+                    const tb = createBarElement(r.start, r.end, 'tos-bar', 'TOS', `${r.start}-${r.end}`);
+                    if(tb) { 
+                        tb.onclick = () => openEditModal(index); 
+                        row.appendChild(tb); 
+                    }
+                });
             }
+            
             graphBody.appendChild(row);
         });
 
@@ -890,16 +921,22 @@
         shifts.forEach((shift, index) => {
             if (shift._hidden) return; 
 
-            let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name); if (shift.isStaffing) isTrainee = false;
+            let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name);
+            
             let duration = calculateShiftMeta(shift).end - calculateShiftMeta(shift).start;
             let durationHours = (duration / 60).toFixed(1).replace('.0', '');
 
             let extraTags = '';
-            if (shift.leaveStart && shift.leaveEnd) extraTags += `<span class="tag-badge tag-leave">LV ${shift.leaveStart}-${shift.leaveEnd}</span>`;
-            if (shift.tosStart && shift.tosEnd) extraTags += `<span class="tag-badge tag-tos">TOS ${shift.tosStart}-${shift.tosEnd}</span>`;
+            if (shift.leaveRanges) {
+                shift.leaveRanges.forEach(r => { extraTags += `<span class="tag-badge tag-leave">LV ${r.start}-${r.end}</span>`; });
+            }
+            if (shift.tosRanges) {
+                shift.tosRanges.forEach(r => { extraTags += `<span class="tag-badge tag-tos">TOS ${r.start}-${r.end}</span>`; });
+            }
+            
             let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
 
-            // --- TRAINER DROPDOWN GENERATION (FILTERED) ---
+            // --- TRAINER DROPDOWN GENERATION ---
             let trainerSelectHtml = '';
             if (isTrainee) {
                 const activeTrainers = trainers.filter(t => {
@@ -917,7 +954,7 @@
             }
 
             const card = document.createElement('div'); card.className = `employee-card ${isTrainee ? 'trainee-card' : ''}`;
-            card.id = `emp-card-${index}`; // Add ID for real-time updates
+            card.id = `emp-card-${index}`; 
             
             card.innerHTML = `
                 <div class="emp-info">
@@ -934,85 +971,94 @@
             listBody.appendChild(card);
         });
         updateStaffCounts();
-        updateShiftStats(); // Added call
-        updateCurrentTime(); // Ensure status colors are correct immediately
+        updateShiftStats(); 
+        updateCurrentTime(); 
     }
 
     function quickAssignTrainer(index, trainerName) {
         pushHistory();
         shifts[index].assignedTrainer = trainerName;
         saveData(false);
-        render(); // Re-render to update grouping/sorting in the visualizer
+        render(); 
     }
 
     function updateStaffCounts() {
-        for(let i=0; i<24; i++) {
-            let hourStart = i * 60; let hourEnd = hourStart + 60; let count = 0;
-            shifts.forEach(s => {
-                if (s._hidden) return; // SKIP if hidden
-
-                let meta = calculateShiftMeta(s); let overlap = getOverlap(meta.start, meta.end, hourStart, hourEnd); 
-                let contributes = false;
-
-                // 1. Check Main Shift
-                let isTrainee = s.type === 'trainee' || trainees.includes(s.name); 
-                
-                // NEW: Use the explicit flag
-                if (!s.isStaffing) isTrainee = true;
-
-                if (!isTrainee) {
-                    if (overlap > 0) {
-                        let validMain = true;
-
-                        // Check Leave
-                        if (s.leaveStart && s.leaveEnd) {
-                            const ls = timeToOffset(s.leaveStart);
-                            const le = timeToOffset(s.leaveEnd);
-                            let dur = le - ls; if (dur < 0) dur += (24*60);
-                            if (getOverlap(ls, ls+dur, hourStart, hourEnd) >= 30) validMain = false;
-                        }
-
-                        // Check Early End Rule (Yellow Bar)
-                        if (validMain && meta.end < 1110 && hourStart < 960) { 
-                            let yOverlap = getOverlap(meta.yStart, meta.yEnd, hourStart, hourEnd); 
-                            if (yOverlap >= 30) validMain = false; 
-                        }
-
-                        if (validMain) contributes = true;
-                    }
-                }
-
-                // 2. Check TOS (Green Bar)
-                if (s.tosStart && s.tosEnd) {
-                    const ts = timeToOffset(s.tosStart);
-                    const te = timeToOffset(s.tosEnd);
-                    let dur = te - ts; if (dur < 0) dur += (24*60);
-                    if (getOverlap(ts, ts+dur, hourStart, hourEnd) > 0) {
-                        contributes = true;
-                    }
-                }
-
-                if (contributes) count++;
-            });
+        for (let i = 0; i < 24; i++) {
+            let hourStart = i * 60;
+            let hourEnd = hourStart + 60;
+            let count = 0;
             
-            const el = document.getElementById('count-'+i);
-            if(el) {
+            let actualHour = (START_HOUR + i) % 24;
+
+            shifts.forEach(s => {
+                if (s._hidden) return; 
+                
+                if (s.isCic) {
+                    const isMidShift = (actualHour >= 22) || (actualHour < 5);
+                    if (!isMidShift) return; 
+                }
+
+                let isTrainee = s.type === 'trainee' || trainees.includes(s.name);
+                if (isTrainee) return;
+                
+                if (!s.isStaffing) return;
+
+                let minutesPresent = 0;
+
+                let start = timeToOffset(s.start);
+                let end = timeToOffset(s.end);
+
+                let effectiveEnd = end;
+                if (start >= 60 && end <= 1020) {
+                    effectiveEnd = end - 60; 
+                }
+
+                let mainOverlap = getOverlap(start, effectiveEnd, hourStart, hourEnd);
+
+                // Subtract ALL Leave Ranges
+                if (s.leaveRanges) {
+                    s.leaveRanges.forEach(r => {
+                        let ls = timeToOffset(r.start);
+                        let le = timeToOffset(r.end);
+                        let leaveOverlap = getOverlap(ls, le, hourStart, hourEnd);
+                        mainOverlap -= leaveOverlap;
+                    });
+                }
+
+                if (mainOverlap > 0) minutesPresent += mainOverlap;
+
+                // Add ALL TOS Ranges
+                if (s.tosRanges) {
+                    s.tosRanges.forEach(r => {
+                        let ts = timeToOffset(r.start);
+                        let te = timeToOffset(r.end);
+                        let tosOverlap = getOverlap(ts, te, hourStart, hourEnd);
+                        minutesPresent += tosOverlap;
+                    });
+                }
+
+                if (minutesPresent >= 30) {
+                    count++;
+                }
+            });
+
+            const el = document.getElementById('count-' + i);
+            if (el) {
                 el.innerText = count;
-                el.className = 'count-label';
+                el.className = 'count-label'; 
                 el.style.backgroundColor = '';
                 el.style.color = count > 0 ? '#3b82f6' : '#ccc';
 
                 let [y, m, d] = currentDate.split('-').map(Number);
-                let day = new Date(y, m-1, d).getDay(); // 0=Sun, 6=Sat
-                let actualHour = (START_HOUR + i) % 24;
+                let day = new Date(y, m-1, d).getDay(); 
 
-                if (day !== 6) { // Sun-Fri
+                if (day !== 6) { 
                     if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
-                } else { // Saturday
+                } else { 
                     if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
                 }
@@ -1020,7 +1066,29 @@
         }
     }
 
-    function loadData() { const stored = localStorage.getItem('shifts_' + currentDate); shifts = stored ? JSON.parse(stored) : []; render(); }
+    // --- MIGRATION ON LOAD ---
+    function loadData() { 
+        const stored = localStorage.getItem('shifts_' + currentDate); 
+        if (stored) {
+            shifts = JSON.parse(stored);
+            // MIGRATION: Convert old single-fields to arrays
+            shifts.forEach(s => {
+                if (!s.leaveRanges) s.leaveRanges = [];
+                if (s.leaveStart && s.leaveEnd) {
+                    s.leaveRanges.push({start: s.leaveStart, end: s.leaveEnd});
+                    delete s.leaveStart; delete s.leaveEnd;
+                }
+                if (!s.tosRanges) s.tosRanges = [];
+                if (s.tosStart && s.tosEnd) {
+                    s.tosRanges.push({start: s.tosStart, end: s.tosEnd});
+                    delete s.tosStart; delete s.tosEnd;
+                }
+            });
+        } else {
+            shifts = [];
+        }
+        render(); 
+    }
     
     function saveData(pushHist = true) { 
         if (pushHist) pushHistory();
@@ -1073,7 +1141,6 @@
 
     function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
     
-    // --- PREVIOUS DAY LOGIC HELPERS ---
     function getPreviousDate(dateStr) {
         let [y, m, d] = dateStr.split('-').map(Number);
         let date = new Date(y, m - 1, d);
@@ -1088,8 +1155,6 @@
         let key = 'shifts_' + dateStr;
         let stored = localStorage.getItem(key);
         let dayShifts = stored ? JSON.parse(stored) : [];
-        
-        // Simple Duplicate Check
         let exists = dayShifts.some(s => s.name === newShift.name && s.start === newShift.start);
         if (!exists) {
             dayShifts.push(newShift);
@@ -1097,19 +1162,19 @@
         }
     }
 
-    function addShift(name, start, end, type, isCic, isStaffing = false) {
+    function addShift(name, start, end, type, isCic, isStaffing = false, forceKeep = false) {
         if (!name) return;
         
-        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '', preDutyWx: false };
+        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveRanges: [], tosRanges: [], preDutyWx: false };
 
-        // 20:00 RULE Check
+        let exists = shifts.some(s => s.name === name && s.start === start);
+        if (exists) return;
+
         let h = parseInt(start.substring(0, 2));
-        if (h >= 20) {
-            // Move to Previous Day
+        if (h >= 20 && !forceKeep) {
             let prevDate = getPreviousDate(currentDate);
             addShiftToStorage(prevDate, newShift);
         } else {
-            // Stay on Current Day
             shifts.push(newShift);
         }
     }
@@ -1118,23 +1183,15 @@
         let text = manualContent || document.getElementById('smartPasteInput').value; 
         if(!text.trim()) text = document.getElementById('pasteInput').value; 
 
-        // 1. Separate Requests
         if (text.includes('===REQUESTS_START===')) {
             const parts = text.split('===REQUESTS_START===');
             processRequests(parts[1]); 
             text = parts[0]; 
         }
         
-        // 2. Clean Header
         text = text.replace('===SCHEDULE_START===', '').trim();
         text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
 
-        // 3. Robust Block Parser
-        // We find every Time Header. The content between this header and the next header (or end of file)
-        // belongs to this shift block.
-        // We split that content by newlines. 
-        // Line 1 = CPC, Line 2 = Sup, Line 3 = Dev.
-        
         const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?$/;
         let lines = text.split(/\n/);
         let currentBlock = null;
@@ -1142,21 +1199,15 @@
 
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
-            // Important: We do not skip empty lines here because empty lines are separators in the block.
-            
             let match = line.match(timeHeaderRegex);
             if (match) {
-                // New Block Found
                 if (currentBlock) blocks.push(currentBlock);
-                
                 let t = match[1]; 
                 let h = parseInt(t.substring(0, 2)); 
                 let m = parseInt(t.substring(2, 4));
                 let dur = 8;
                 if (match[3]) dur = parseInt(match[3]); 
-                
                 let eH = (h + dur) % 24;
-                
                 currentBlock = {
                     shift: { 
                         start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
@@ -1166,7 +1217,6 @@
                     dataLines: []
                 };
             } else if (currentBlock) {
-                // Add content to current block
                 currentBlock.dataLines.push(line);
             }
         }
@@ -1183,46 +1233,59 @@
             let sData = blk.shift;
             let dLines = blk.dataLines; 
             
-            // dLines[0] = CPCs
-            // dLines[1] = Sups
-            // dLines[2] = Devs
-            // Any further lines are ignored or extra spacing
-            
-            // --- 1. CPCs (Counted) ---
             if (dLines[0]) {
                 dLines[0].split(/[\s,\t]+/).forEach(n => {
-                    if (n && n !== "-") {
-                        let isCic = sData.isCic; let name = n;
-                        if (n.includes('(') && n.includes(')')) { isCic = true; name = n.replace(/[()]/g, ''); }
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    if (!cleanName || cleanName === '-') return;
+
+                    if (cleanName && cleanName !== "-") {
+                        let isCic = sData.isCic; let name = cleanName;
+                        if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
                         
-                        // Check for existing to update or add
-                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                        if (idx !== -1) {
-                             // Update logic (move if needed)
-                             let oldH = parseInt(sData.start.substring(0,2));
-                             if (oldH >= 20) {
-                                 let s = shifts[idx];
-                                 let up = {...s, start: sData.start, end: sData.end, isCic: (isCic || s.isCic)};
-                                 shifts.splice(idx, 1);
-                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
-                             } else {
-                                 shifts[idx].start = sData.start; 
-                                 shifts[idx].end = sData.end;
-                                 shifts[idx].isCic = (isCic || shifts[idx].isCic);
-                             }
+                        let existing = shifts.find(x => x.name === name && !x._hidden);
+                        let isDoubleShift = false;
+                        if (existing) {
+                            let eEnd = timeToOffset(existing.end);
+                            let eStart = timeToOffset(existing.start);
+                            let dur = eEnd - eStart; if(dur < 0) dur += 1440;
+                            let actualEnd = eStart + dur;
+                            let nStart = timeToOffset(sData.start);
+                            let gap = nStart - actualEnd; 
+                            if (gap < 0) gap += 1440; 
+                            if (gap >= 600) isDoubleShift = true;
+                        }
+
+                        if (isDoubleShift) {
+                            addShift(name, sData.start, sData.end, 'standard', isCic, true, true);
                         } else {
-                            addShift(name, sData.start, sData.end, 'standard', isCic, true);
+                            let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                            if (idx !== -1) {
+                                 let oldH = parseInt(sData.start.substring(0,2));
+                                 if (oldH >= 20) {
+                                     let s = shifts[idx];
+                                     let up = {...s, start: sData.start, end: sData.end, isCic: (isCic || s.isCic)};
+                                     shifts.splice(idx, 1);
+                                     let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
+                                 } else {
+                                     shifts[idx].start = sData.start; 
+                                     shifts[idx].end = sData.end;
+                                     shifts[idx].isCic = (isCic || shifts[idx].isCic);
+                                 }
+                            } else {
+                                addShift(name, sData.start, sData.end, 'standard', isCic, true);
+                            }
                         }
                     }
                 });
             }
 
-            // --- 2. Sups (Not Counted) ---
             if (dLines[1]) {
                 dLines[1].split(/[\s,\t]+/).forEach(n => {
-                    if (n && n !== "-") {
-                        let name = n.replace(/[()]/g, ''); // Clean parens (NP) -> NP
-                        
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    if (!cleanName || cleanName === '-') return;
+
+                    if (cleanName && cleanName !== "-") {
+                        let name = cleanName.replace(/[()]/g, ''); 
                         let idx = shifts.findIndex(x => x.name === name && !x._hidden);
                         if (idx !== -1) {
                              let oldH = parseInt(sData.start.substring(0,2));
@@ -1237,18 +1300,19 @@
                                  shifts[idx].isCic = true;
                              }
                         } else {
-                            // Add Sup: isStaffing = false
                             addShift(name, sData.start, sData.end, 'standard', true, false);
                         }
                     }
                 });
             }
 
-            // --- 3. Devs (Not Counted) ---
             if (dLines[2]) {
                 dLines[2].split(/[\s,\t]+/).forEach(n => {
-                    if (n && n !== "-") {
-                        let idx = shifts.findIndex(x => x.name === n && !x._hidden);
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    if (!cleanName || cleanName === '-') return;
+
+                    if (cleanName && cleanName !== "-") {
+                        let idx = shifts.findIndex(x => x.name === cleanName && !x._hidden);
                         if (idx !== -1) {
                              let oldH = parseInt(sData.start.substring(0,2));
                              if (oldH >= 20) {
@@ -1261,7 +1325,7 @@
                                  shifts[idx].end = sData.end;
                              }
                         } else {
-                            addShift(n, sData.start, sData.end, 'trainee', false, false);
+                            addShift(cleanName, sData.start, sData.end, 'trainee', false, false);
                         }
                     }
                 });
@@ -1280,27 +1344,18 @@
         }
     }
     
-    // ... [Rest of code is unchanged] ...
     function processPreDuty(manualContent) {
         const text = manualContent || document.getElementById('preDutyInput').value;
         const tokens = text.split(/[\s,]+/);
         pushHistory(); 
-        
         tokens.forEach(token => {
             let clean = token.trim();
-            if (clean.length === 3 && clean.startsWith('8')) {
-                clean = clean.substring(1);
-            }
+            if (clean.length === 3 && clean.startsWith('8')) { clean = clean.substring(1); }
             if (/^[a-zA-Z]{2}$/.test(clean)) {
                 const initials = clean.toUpperCase();
-                shifts.forEach(s => {
-                    if (s.name.toUpperCase() === initials) {
-                        s.preDutyWx = true;
-                    }
-                });
+                shifts.forEach(s => { if (s.name.toUpperCase() === initials) { s.preDutyWx = true; } });
             }
         });
-
         if(!manualContent) {
             saveData(false);
             closeModal('preDutyModal');
@@ -1326,7 +1381,9 @@
             }
             if (statusIndex === -1) return; 
 
-            const cpc = cols[0].trim();
+            let cpcRaw = cols[0].trim();
+            let cpc = cpcRaw.replace(/[$]/g, '').trim();
+
             const status = cols[statusIndex].trim();
             let typeRaw = cols[1].trim();
             let from, to;
@@ -1346,27 +1403,21 @@
             const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
             
             if (isApproved) {
-                // If it's a shift change, we must update the start time and potentially move day
                 let updateTargetIdx = -1;
                 if (isShiftChg) {
                     const idx = shifts.findIndex(s => s.name === cpc);
                     if (idx !== -1) {
-                        // We found the person. Update their shift time.
                         if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
-                        
                         let p = parseShiftStringForPreview(to);
                         if (p) {
-                            // Check if NEW start time >= 20:00
                             let h = parseInt(p.start.substring(0,2));
                             if (h >= 20) {
-                                // MOVE TO PREV DAY
                                 const shiftToMove = { ...shifts[idx], start: p.start, end: p.end, isCic: p.isCic };
-                                shifts.splice(idx, 1); // Remove from current
+                                shifts.splice(idx, 1); 
                                 let prevDate = getPreviousDate(currentDate);
                                 addShiftToStorage(prevDate, shiftToMove);
                                 changesMade = true;
                             } else {
-                                // Update in place
                                 shifts[idx].start = p.start;
                                 shifts[idx].end = p.end;
                                 shifts[idx].isCic = p.isCic;
@@ -1374,24 +1425,22 @@
                             }
                         }
                     }
-                    // Continue to next request
                     return; 
                 }
 
-                // Regular Logic for Leave/Tos
                 const idx = shifts.findIndex(s => s.name === cpc);
                 if (idx !== -1) {
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
                     if (isTos) {
-                        shifts[idx].tosStart = normalizeTime(cleanFrom);
-                        shifts[idx].tosEnd = normalizeTime(cleanTo);
+                        if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
+                        shifts[idx].tosRanges.push({start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                         changesMade = true;
                     }
                     else if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
-                            shifts[idx].leaveStart = normalizeTime(cleanFrom);
-                            shifts[idx].leaveEnd = normalizeTime(cleanTo);
+                            if(!shifts[idx].leaveRanges) shifts[idx].leaveRanges = [];
+                            shifts[idx].leaveRanges.push({start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                             changesMade = true;
                         }
                     } 
@@ -1420,35 +1469,24 @@
         }
     }
 
-    // --- SMART PASTE LOGIC ---
     function processSmartPaste(manualContent) {
         const raw = manualContent || document.getElementById('smartPasteInput').value;
         if (!raw.trim()) return;
-
-        pushHistory(); // Single history snapshot for the batch
-
-        // 1. Split by Magic Separators
+        pushHistory(); 
         if (raw.includes('===SCHEDULE_START===')) {
-            // It's a Master Paste
             const parts = raw.split(/===[A-Z_]+===/); 
-            // parts[0] is empty, parts[1] is Schedule, parts[2] is Requests
             if (parts[1]) processPaste(parts[1]);
             if (parts[2]) processRequests(parts[2]);
         } 
         else {
-            // Heuristic detection
             if (raw.includes('AMAREA') || /8[a-zA-Z]{2}/.test(raw)) {
-                // Looks like Pre-Duty WX log
                 processPreDuty(raw);
             } else if (raw.includes('\t') && (raw.includes('Approved') || raw.includes('Pending'))) {
-                // Looks like Requests (Table data)
                 processRequests(raw);
             } else {
-                // Default to Schedule
                 processPaste(raw);
             }
         }
-
         saveData(false);
         closeModal('smartPasteModal');
         document.getElementById('smartPasteInput').value = '';
@@ -1456,31 +1494,18 @@
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr, isTos) {
         let idx = shifts.findIndex(s => s.name === cpc);
-        
-        // 1. CLEAR EXISTING TIMER IF ANY (This fixes the race condition)
-        if (previewTimers.has(cpc)) {
-            clearTimeout(previewTimers.get(cpc));
-            previewTimers.delete(cpc);
-        }
+        if (previewTimers.has(cpc)) { clearTimeout(previewTimers.get(cpc)); previewTimers.delete(cpc); }
 
-        // 2. CHECK IF CURRENTLY ACTIVE
         if (li.classList.contains('active-preview')) {
-            // -- REVERT CHANGES --
             if (previewBackups.has(cpc)) { 
-                if (idx !== -1) {
-                    shifts[idx] = previewBackups.get(cpc); // Restore object
-                } else {
-                    shifts.push(previewBackups.get(cpc)); // Restore removed object
-                }
+                if (idx !== -1) { shifts[idx] = previewBackups.get(cpc); } 
+                else { shifts.push(previewBackups.get(cpc)); }
                 previewBackups.delete(cpc); 
             } 
-            else if (idx !== -1 && shifts[idx]._isNewPreview) { 
-                shifts.splice(idx, 1); // Delete new entry
-            }
+            else if (idx !== -1 && shifts[idx]._isNewPreview) { shifts.splice(idx, 1); }
             li.classList.remove('active-preview'); 
             render();
         } else {
-            // -- APPLY PREVIEW --
             if (idx === -1) {
                 if (!toStr) { alert('Cannot create new shift: No time provided.'); return; }
                 let p = parseShiftStringForPreview(toStr);
@@ -1499,30 +1524,25 @@
             let isFullLeave = (!isShiftChange && fromStr.toLowerCase() === 'shift');
 
             if (isShiftChange) { 
-                if (toStr.toUpperCase() === 'X') {
-                    s._hidden = true; 
-                } else {
+                if (toStr.toUpperCase() === 'X') { s._hidden = true; } 
+                else {
                     let p = parseShiftStringForPreview(toStr); 
-                    if (p) { 
-                        s.start = p.start; 
-                        s.end = p.end; 
-                        s.isCic = p.isCic;
-                    } 
+                    if (p) { s.start = p.start; s.end = p.end; s.isCic = p.isCic; } 
                 }
             } 
             else { 
                 if (isTos) {
-                    s.tosStart = normalizeTime(fromStr);
-                    s.tosEnd = normalizeTime(toStr);
+                    if(!s.tosRanges) s.tosRanges = [];
+                    s.tosRanges.push({start: normalizeTime(fromStr), end: normalizeTime(toStr)});
                 } else {
-                    if (isFullLeave) { s.leaveStart = s.start; s.leaveEnd = s.end; } 
-                    else { s.leaveStart = normalizeTime(fromStr); s.leaveEnd = normalizeTime(toStr); } 
+                    if (isFullLeave) { s.leaveRanges = [{start: s.start, end: s.end}]; } 
+                    else { 
+                        if(!s.leaveRanges) s.leaveRanges = [];
+                        s.leaveRanges.push({start: normalizeTime(fromStr), end: normalizeTime(toStr)});
+                    } 
                 }
             }
-            
             render(); 
-            
-            // 3. SET NEW TIMER
             const timerId = setTimeout(() => { 
                 const current = shifts.find(item => item.name === cpc);
                 if(current) {
@@ -1530,19 +1550,15 @@
                     if(isFullLeave) current._hidden = true; 
                     render();
                 }
-                previewTimers.delete(cpc); // Clean up map
+                previewTimers.delete(cpc); 
             }, 5000);
-
             previewTimers.set(cpc, timerId);
         }
     }
 
     function parseShiftStringForPreview(str) {
         if (!str) return null;
-        
-        // Handle T prefix
         if (/^[tT]/.test(str)) str = str.substring(1);
-
         let isCic = false;
         if (/^[cC]/.test(str)) { isCic = true; str = str.substring(1); }
         let clean = str.replace(/f/gi, '');
@@ -1563,47 +1579,30 @@
         return { start, end, isCic };
     }
 
-    function addShift(name, start, end, type, isCic) {
-        if (!name) return;
-        
-        let newShift = { name, start, end, type, isCic, notes: '', leaveStart: '', leaveEnd: '', tosStart: '', tosEnd: '', preDutyWx: false };
-
-        // 20:00 RULE Check
-        let h = parseInt(start.substring(0, 2));
-        if (h >= 20) {
-            // Move to Previous Day
-            let prevDate = getPreviousDate(currentDate);
-            addShiftToStorage(prevDate, newShift);
-        } else {
-            // Stay on Current Day
-            shifts.push(newShift);
-        }
-    }
-
-    // Modals & Utils
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function openEditModal(index) {
         const s = shifts[index]; document.getElementById('editId').value = index; document.getElementById('editName').value = s.name;
         document.getElementById('editStart').value = s.start.replace(':', ''); 
-        
         document.getElementById('editNotes').value = s.notes || ''; document.getElementById('editStaffing').checked = s.isStaffing || false;
         document.getElementById('editPreDutyWx').checked = s.preDutyWx || false;
         
-        // Calculate Duration
         let sMins = timeToOffset(s.start);
         let eMins = timeToOffset(s.end);
         let diff = eMins - sMins;
         if (diff < 0) diff += 1440;
         document.getElementById('editDuration').value = Number((diff / 60).toFixed(2));
         
-        // Render Tags from existing data
         document.getElementById('editLeaveRange').value = ''; 
-        let leaveVal = (s.leaveStart && s.leaveEnd) ? `${s.leaveStart}-${s.leaveEnd}` : '';
-        if(leaveVal) addTag(leaveVal, 'leave', false); else document.getElementById('previewLeave').innerHTML = '';
+        document.getElementById('previewLeave').innerHTML = '';
+        if (s.leaveRanges) {
+            s.leaveRanges.forEach(r => addTag(`${r.start}-${r.end}`, 'leave', false));
+        }
 
         document.getElementById('editTosRange').value = '';
-        let tosVal = (s.tosStart && s.tosEnd) ? `${s.tosStart}-${s.tosEnd}` : '';
-        if(tosVal) addTag(tosVal, 'tos', false); else document.getElementById('previewTos').innerHTML = '';
+        document.getElementById('previewTos').innerHTML = '';
+        if (s.tosRanges) {
+            s.tosRanges.forEach(r => addTag(`${r.start}-${r.end}`, 'tos', false));
+        }
 
         const isTrainee = s.type === 'trainee' || trainees.includes(s.name);
         const wrapper = document.getElementById('staffingCheckboxWrapper'); const trainerWrapper = document.getElementById('trainerSelectWrapper'); const trainerSelect = document.getElementById('editAssignedTrainer');
@@ -1614,7 +1613,6 @@
         document.getElementById('editModal').style.display = 'flex';
     }
     
-    // --- TAG LOGIC ---
     function handleTagKey(event, type) {
         if(event.key === 'Enter') {
             manualAddTag(type);
@@ -1630,11 +1628,8 @@
     }
 
     function addTag(val, type, clearInputBox) {
-        // Validate format briefly (simple check)
         const parts = val.split('-');
         if(parts.length < 2) return; 
-
-        // Normalize
         const p1 = normalizeTime(parts[0]);
         const p2 = normalizeTime(parts[1]);
         const finalVal = `${p1}-${p2}`;
@@ -1645,11 +1640,11 @@
         const className = type === 'leave' ? 'leave' : 'tos'; 
         const label = type === 'leave' ? 'LV' : 'TOS';
         
-        // Single tag enforcement: overwrite content
-        container.innerHTML = `<span class="modal-tag ${className}" data-range="${finalVal}">
-            ${label} ${finalVal}
-            <span class="tag-remove" onclick="removeTag('${containerId}')">✕</span>
-        </span>`;
+        const span = document.createElement('span');
+        span.className = `modal-tag ${className}`;
+        span.setAttribute('data-range', finalVal);
+        span.innerHTML = `${label} ${finalVal} <span class="tag-remove" onclick="this.parentElement.remove()">✕</span>`;
+        container.appendChild(span);
 
         if(clearInputBox) {
             const inputId = type === 'leave' ? 'editLeaveRange' : 'editTosRange';
@@ -1671,7 +1666,7 @@
             const durVal = parseFloat(document.getElementById('editDuration').value);
             
             if (!startVal || isNaN(durVal)) { alert("Invalid Start Time or Duration"); return; }
-    
+   
             let h = parseInt(startVal.substring(0,2));
             let m = parseInt(startVal.substring(3,5));
             let totalStart = (h * 60) + m;
@@ -1680,43 +1675,34 @@
             let eh = Math.floor(totalEnd / 60) % 24;
             let em = Math.round(totalEnd % 60);
             let endVal = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
-    
-            // READ FROM TAGS
-            let leaveStart = '', leaveEnd = '';
-            const leaveTag = document.querySelector('#previewLeave .modal-tag');
-            if(leaveTag) {
-                const parts = leaveTag.getAttribute('data-range').split('-');
-                leaveStart = parts[0]; leaveEnd = parts[1];
-            }
+   
+            let leaveRanges = [];
+            document.querySelectorAll('#previewLeave .modal-tag').forEach(t => {
+                const parts = t.getAttribute('data-range').split('-');
+                leaveRanges.push({start: parts[0], end: parts[1]});
+            });
 
-            let tosStart = '', tosEnd = '';
-            const tosTag = document.querySelector('#previewTos .modal-tag');
-            if(tosTag) {
-                const parts = tosTag.getAttribute('data-range').split('-');
-                tosStart = parts[0]; tosEnd = parts[1];
-            }
+            let tosRanges = [];
+            document.querySelectorAll('#previewTos .modal-tag').forEach(t => {
+                const parts = t.getAttribute('data-range').split('-');
+                tosRanges.push({start: parts[0], end: parts[1]});
+            });
             
-            // 20:00 Rule for Manual Edits
             if (h >= 20) {
-               // We must remove this shift from current view and move to previous day
                let s = shifts[idx];
                const newShift = {
                    ...s,
                    start: startVal,
                    end: endVal,
                    notes: document.getElementById('editNotes').value,
-                   leaveStart, leaveEnd, tosStart, tosEnd,
+                   leaveRanges, tosRanges,
                    isStaffing: document.getElementById('editStaffing').checked,
                    assignedTrainer: document.getElementById('editAssignedTrainer').value,
                    preDutyWx: document.getElementById('editPreDutyWx').checked
                };
-
-               // Remove from current
                shifts.splice(idx, 1);
-               // Add to prev
                let prevDate = getPreviousDate(currentDate);
                addShiftToStorage(prevDate, newShift);
-               
                saveData(false); 
                closeModal('editModal');
                return;
@@ -1727,10 +1713,7 @@
                 start: startVal, 
                 end: endVal,
                 notes: document.getElementById('editNotes').value, 
-                leaveStart: leaveStart, 
-                leaveEnd: leaveEnd, 
-                tosStart: tosStart, 
-                tosEnd: tosEnd,
+                leaveRanges, tosRanges,
                 isStaffing: document.getElementById('editStaffing').checked, 
                 assignedTrainer: document.getElementById('editAssignedTrainer').value,
                 preDutyWx: document.getElementById('editPreDutyWx').checked
