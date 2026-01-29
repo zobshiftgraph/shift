@@ -921,6 +921,9 @@
         shifts.forEach((shift, index) => {
             if (shift._hidden) return; 
 
+            // CHANGED HERE: Trainee status in the list is now strictly based on Type/List inclusion.
+            // We removed: if (shift.isStaffing) isTrainee = false; 
+            // This ensures they stay purple in the list even if they count for staffing.
             let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name);
             
             let duration = calculateShiftMeta(shift).end - calculateShiftMeta(shift).start;
@@ -988,31 +991,73 @@
             let hourEnd = hourStart + 60;
             let count = 0;
             
+            // actualHour is 0-23 (e.g., 20 for 8pm)
             let actualHour = (START_HOUR + i) % 24;
 
             shifts.forEach(s => {
-                if (s._hidden) return; 
+                // 1. GLOBAL EXCLUSIONS
+                if (s._hidden) return; // Hidden by user
                 
-                if (s.isCic) {
-                    const isMidShift = (actualHour >= 22) || (actualHour < 5);
-                    if (!isMidShift) return; 
+                // Trainees are ALWAYS excluded from counts
+                let isTrainee = s.type === 'trainee' || trainees.includes(s.name);
+                
+                // 2. Trainee Gate: If trainee and NOT checked, skip immediately.
+                if (isTrainee && !s.isStaffing) return;
+
+                // 3. Determine if this specific hour counts for this person
+                let shouldCount = false;
+
+                // Time Check: 20:00 - 05:00 window
+                const isNight = (actualHour >= 20 || actualHour < 5);
+
+                if (isTrainee) {
+                    // We already passed the gate above. If we are here, s.isStaffing is true.
+                    shouldCount = true;
+                } else {
+                    // Non-Trainees
+                    if (isNight) {
+                         shouldCount = true; // Everyone counts at night
+                    } else {
+                         // Day Time (05:00 - 19:59)
+                         if (s.isCic) {
+                             shouldCount = false; // CICs don't count during day
+                         } else {
+                             shouldCount = s.isStaffing; // CPCs/Sups count if checked
+                         }
+                    }
                 }
 
-                let isTrainee = s.type === 'trainee' || trainees.includes(s.name);
-                if (isTrainee) return;
-                
-                if (!s.isStaffing) return;
+                if (!shouldCount) return;
 
+                // 3. CALCULATE MINUTES PRESENT
                 let minutesPresent = 0;
 
                 let start = timeToOffset(s.start);
-                let end = timeToOffset(s.end);
+                let endOffset = timeToOffset(s.end);
+                
+                // Calculate accurate linear end time (handling midnight wrap)
+                let duration = endOffset - start;
+                if (duration < 0) duration += 1440;
+                let end = start + duration;
 
+                // --- LAST HOUR RULE LOGIC ---
+                // Rule: Ignore the last 60 mins of the shift...
+                // UNLESS: 
+                // 1. It's the 20:00-21:00 hour (Index 16). User explicitly wants these counted.
+                // 2. The shift ends after 21:00 (Late shifts don't drop off early).
+                // 3. The shift started after 20:00 (Late starts don't drop off).
+                // 4. It is NIGHT (20:00-05:00). We count raw presence at night.
+                
                 let effectiveEnd = end;
-                if (start >= 60 && end <= 1020) {
-                    effectiveEnd = end - 60; 
+                
+                // Only apply reduction if shift is a "Day/Eve" shift (starts before 20:00)
+                // AND we are strictly in the "Day/Eve" hours (05:00 - 19:59).
+                // If actualHour is >= 20, we disable this rule so people ending at 20:30, 21:00, etc count.
+                if (!isNight && start < 960) {
+                     effectiveEnd = end - 60;
                 }
 
+                // Calculate overlap
                 let mainOverlap = getOverlap(start, effectiveEnd, hourStart, hourEnd);
 
                 // Subtract ALL Leave Ranges
@@ -1020,7 +1065,11 @@
                     s.leaveRanges.forEach(r => {
                         let ls = timeToOffset(r.start);
                         let le = timeToOffset(r.end);
-                        let leaveOverlap = getOverlap(ls, le, hourStart, hourEnd);
+                        // Handle leave wrapping if necessary (rare for day shifts, but safe)
+                        let lDur = le - ls; if (lDur < 0) lDur += 1440;
+                        let lEnd = ls + lDur;
+                        
+                        let leaveOverlap = getOverlap(ls, lEnd, hourStart, hourEnd);
                         mainOverlap -= leaveOverlap;
                     });
                 }
@@ -1032,16 +1081,21 @@
                     s.tosRanges.forEach(r => {
                         let ts = timeToOffset(r.start);
                         let te = timeToOffset(r.end);
-                        let tosOverlap = getOverlap(ts, te, hourStart, hourEnd);
+                        let tDur = te - ts; if (tDur < 0) tDur += 1440;
+                        let tEnd = ts + tDur;
+
+                        let tosOverlap = getOverlap(ts, tEnd, hourStart, hourEnd);
                         minutesPresent += tosOverlap;
                     });
                 }
 
+                // 4. FINAL THRESHOLD CHECK
                 if (minutesPresent >= 30) {
                     count++;
                 }
             });
 
+            // Update DOM Elements
             const el = document.getElementById('count-' + i);
             if (el) {
                 el.innerText = count;
@@ -1049,16 +1103,17 @@
                 el.style.backgroundColor = '';
                 el.style.color = count > 0 ? '#3b82f6' : '#ccc';
 
+                // Status Coloring
                 let [y, m, d] = currentDate.split('-').map(Number);
                 let day = new Date(y, m-1, d).getDay(); 
 
-                if (day !== 6) { 
+                if (day !== 6) { // Sun-Fri
                     if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
-                } else { 
+                } else { // Saturday
                     if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
                 }
@@ -1170,11 +1225,14 @@
         let exists = shifts.some(s => s.name === name && s.start === start);
         if (exists) return;
 
+        // 20:00 RULE Check - Move to Previous Day
         let h = parseInt(start.substring(0, 2));
         if (h >= 20 && !forceKeep) {
+            // Move to Previous Day
             let prevDate = getPreviousDate(currentDate);
             addShiftToStorage(prevDate, newShift);
         } else {
+            // Stay on Current Day
             shifts.push(newShift);
         }
     }
@@ -1192,7 +1250,7 @@
         text = text.replace('===SCHEDULE_START===', '').trim();
         text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
 
-        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?$/;
+        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?([fF])?$/;
         let lines = text.split(/\n/);
         let currentBlock = null;
         let blocks = [];
