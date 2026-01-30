@@ -758,18 +758,54 @@
             const startA = timeToOffset(shifts[a].start);
             const startB = timeToOffset(shifts[b].start);
             if (startA !== startB) return startA - startB;
-            return shifts[a].name.localeCompare(shifts[b].name);
+            
+            // Secondary sort: End Time
+            const endA = timeToOffset(shifts[a].end);
+            const endB = timeToOffset(shifts[b].end);
+            
+            // Handle wrapper logic (e.g. 0600-1400 vs 0600-1430) - simple calculation
+            let durA = endA - startA; if(durA < 0) durA += 1440;
+            let durB = endB - startB; if(durB < 0) durB += 1440;
+            
+            // Just compare effective end times
+            return (startA + durA) - (startB + durB);
         });
 
         indices.forEach((idx) => {
+            // If already added (e.g. as a trainee child), skip
             if (added.has(idx)) return; 
+            
             const s = shifts[idx];
-            if (s.assignedTrainer && shifts.some(p => p.name === s.assignedTrainer && !p._hidden)) { return; }
+            
+            // If this is a trainee assigned to a valid trainer, skip (they will be added under trainer)
+            if (s.assignedTrainer) {
+                const trainerExists = shifts.some(p => p.name === s.assignedTrainer && !p._hidden);
+                if(trainerExists) return;
+            }
 
+            // Add this "main" entry
             sorted.push(idx); added.add(idx);
 
+            // Now check if this person is a trainer and has trainees
             if (traineesByTrainer[s.name]) {
-                traineesByTrainer[s.name].forEach(childIdx => {
+                // Get their trainees
+                let children = traineesByTrainer[s.name];
+                
+                // Sort the trainees by time
+                children.sort((a, b) => {
+                    const tStartA = timeToOffset(shifts[a].start);
+                    const tStartB = timeToOffset(shifts[b].start);
+                    if (tStartA !== tStartB) return tStartA - tStartB;
+                    
+                    const tEndA = timeToOffset(shifts[a].end);
+                    const tEndB = timeToOffset(shifts[b].end);
+                    let tDurA = tEndA - tStartA; if(tDurA < 0) tDurA += 1440;
+                    let tDurB = tEndB - tStartB; if(tDurB < 0) tDurB += 1440;
+                    return (tStartA + tDurA) - (tStartB + tDurB);
+                });
+                
+                // Add them immediately after
+                children.forEach(childIdx => {
                     if (!added.has(childIdx)) { sorted.push(childIdx); added.add(childIdx); }
                 });
             }
@@ -845,12 +881,26 @@
             let durationHours = (duration / 60).toFixed(1).replace('.0', '');
             
             const row = document.createElement('div'); row.className = 'shift-row';
-            let workStart = meta.start; let workEnd = meta.end;
             
-            // Calc Work Start/End based on last Leave range (Simplification for visual text alignment)
-            // Ideally we'd scan all ranges, but for text alignment we usually care about the "main" gap.
-            // Keeping mostly standard for text position unless specific range abuts.
-            // (Full multiple-leave gap calculation for text-centering is complex, sticking to base duration is usually fine)
+            // Recalculate workStart based on leave at the beginning (for visual WX positioning)
+            let workStart = meta.start; 
+            let workEnd = meta.end;
+
+            if (shift.leaveRanges && shift.leaveRanges.length > 0) {
+                // Sort by start time
+                let sortedL = [...shift.leaveRanges].sort((a,b) => timeToOffset(a.start) - timeToOffset(b.start));
+                sortedL.forEach(r => {
+                    let ls = timeToOffset(r.start);
+                    let le = timeToOffset(r.end);
+                    let lDur = le - ls; if(lDur < 0) lDur += 1440;
+                    let lEndLinear = ls + lDur;
+
+                    // If leave overlaps the current work start, push work start out
+                    if (ls <= workStart + 1 && lEndLinear > workStart) {
+                        workStart = lEndLinear;
+                    }
+                });
+            }
             
             let workDuration = workEnd - workStart;
             let textLeftPct = ((workStart - meta.start) / duration) * 100; let textWidthPct = (workDuration / duration) * 100;
@@ -930,12 +980,28 @@
             let durationHours = (duration / 60).toFixed(1).replace('.0', '');
 
             let extraTags = '';
+            
+            // DEDUPLICATE LEAVE TAGS FOR DISPLAY
+            let uniqueLeaves = [];
             if (shift.leaveRanges) {
-                shift.leaveRanges.forEach(r => { extraTags += `<span class="tag-badge tag-leave">LV ${r.start}-${r.end}</span>`; });
+                const seen = new Set();
+                shift.leaveRanges.forEach(r => {
+                    const k = r.start + '-' + r.end;
+                    if(!seen.has(k)) { seen.add(k); uniqueLeaves.push(r); }
+                });
             }
+            uniqueLeaves.forEach(r => { extraTags += `<span class="tag-badge tag-leave">LV ${r.start}-${r.end}</span>`; });
+
+            // DEDUPLICATE TOS TAGS FOR DISPLAY
+            let uniqueTos = [];
             if (shift.tosRanges) {
-                shift.tosRanges.forEach(r => { extraTags += `<span class="tag-badge tag-tos">TOS ${r.start}-${r.end}</span>`; });
+                const seen = new Set();
+                shift.tosRanges.forEach(r => {
+                    const k = r.start + '-' + r.end;
+                    if(!seen.has(k)) { seen.add(k); uniqueTos.push(r); }
+                });
             }
+            uniqueTos.forEach(r => { extraTags += `<span class="tag-badge tag-tos">TOS ${r.start}-${r.end}</span>`; });
             
             let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
 
@@ -1225,7 +1291,7 @@
         let exists = shifts.some(s => s.name === name && s.start === start);
         if (exists) return;
 
-        // 20:00 RULE Check - Move to Previous Day
+        // 20:00 RULE Check
         let h = parseInt(start.substring(0, 2));
         if (h >= 20 && !forceKeep) {
             // Move to Previous Day
@@ -1427,6 +1493,13 @@
         let changesMade = false;
         let snapshotNeeded = false;
 
+        // Helper to avoid duplicate ranges in data
+        const addRangeUnique = (arr, newR) => {
+            if (!arr.some(r => r.start === newR.start && r.end === newR.end)) {
+                arr.push(newR);
+            }
+        };
+
         lines.forEach(line => {
             if (!line.trim()) return;
             let cols = line.split(/\t/);
@@ -1454,7 +1527,7 @@
             let cleanFrom = from; if (cleanFrom.toLowerCase() !== 'shift') cleanFrom = cleanFrom.replace(/f/gi, '');
             let cleanTo = to; if (cleanTo.toLowerCase() !== 'shift') cleanTo = cleanTo.replace(/f/gi, '');
             
-            const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
+            const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough', 'Blood'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
             const isShiftChg = typeRaw.toLowerCase().includes('shift chg');
             const isTos = ['XTE', 'CTE', 'OT'].some(t => typeRaw.toUpperCase().includes(t)); 
             const isApproved = status.toLowerCase().includes('approved');
@@ -1492,13 +1565,13 @@
                     
                     if (isTos) {
                         if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
-                        shifts[idx].tosRanges.push({start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
+                        addRangeUnique(shifts[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                         changesMade = true;
                     }
                     else if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
                             if(!shifts[idx].leaveRanges) shifts[idx].leaveRanges = [];
-                            shifts[idx].leaveRanges.push({start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
+                            addRangeUnique(shifts[idx].leaveRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                             changesMade = true;
                         }
                     } 
@@ -1653,13 +1726,22 @@
         document.getElementById('editLeaveRange').value = ''; 
         document.getElementById('previewLeave').innerHTML = '';
         if (s.leaveRanges) {
-            s.leaveRanges.forEach(r => addTag(`${r.start}-${r.end}`, 'leave', false));
+            // Dedupe visual modal tags
+            const seen = new Set();
+            s.leaveRanges.forEach(r => {
+                const k = r.start + '-' + r.end;
+                if(!seen.has(k)) { seen.add(k); addTag(`${r.start}-${r.end}`, 'leave', false); }
+            });
         }
 
         document.getElementById('editTosRange').value = '';
         document.getElementById('previewTos').innerHTML = '';
         if (s.tosRanges) {
-            s.tosRanges.forEach(r => addTag(`${r.start}-${r.end}`, 'tos', false));
+             const seen = new Set();
+            s.tosRanges.forEach(r => {
+                const k = r.start + '-' + r.end;
+                if(!seen.has(k)) { seen.add(k); addTag(`${r.start}-${r.end}`, 'tos', false); }
+            });
         }
 
         const isTrainee = s.type === 'trainee' || trainees.includes(s.name);
@@ -1695,6 +1777,16 @@
         const containerId = type === 'leave' ? 'previewLeave' : 'previewTos';
         const container = document.getElementById(containerId);
         
+        // Prevent adding duplicate tag visually
+        const existingTags = Array.from(container.children).map(c => c.getAttribute('data-range'));
+        if (existingTags.includes(finalVal)) {
+            if(clearInputBox) {
+                const inputId = type === 'leave' ? 'editLeaveRange' : 'editTosRange';
+                document.getElementById(inputId).value = '';
+            }
+            return; 
+        }
+
         const className = type === 'leave' ? 'leave' : 'tos'; 
         const label = type === 'leave' ? 'LV' : 'TOS';
         
