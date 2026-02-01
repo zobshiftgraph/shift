@@ -121,6 +121,24 @@
         .count-label {
             position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center;
             font-size: 0.75rem; font-weight: bold; color: #3b82f6; border-right: 1px dashed #eee;
+            cursor: pointer; /* Clickable */
+            user-select: none;
+        }
+        .count-label:hover { background-color: #eff6ff; } /* Hover effect */
+        
+        .count-highlight-active {
+            background-color: #fef08a !important; /* Yellow highlight for header */
+            border-bottom: 2px solid #ca8a04;
+        }
+
+        /* Column Highlight Overlay */
+        .column-highlight {
+            position: absolute;
+            top: 0; bottom: 0;
+            background-color: rgba(254, 240, 138, 0.3); /* Transparent Yellow */
+            z-index: 1;
+            pointer-events: none;
+            display: none;
         }
 
         /* SHADING CLASSES */
@@ -459,6 +477,7 @@
     let trainers = JSON.parse(localStorage.getItem('app_trainers')) || [];
     let trainees = JSON.parse(localStorage.getItem('app_trainees')) || [];
     let currentManageType = ''; 
+    let activeHighlightIndex = -1; // Track currently highlighted column
 
     // --- UNDO/REDO STATE ---
     let undoStack = [];
@@ -620,15 +639,62 @@
         const countHeader = document.getElementById('countHeader');
         const grid = document.getElementById('gridLines');
         header.innerHTML = ''; countHeader.innerHTML = ''; grid.innerHTML = '';
+        
+        // Reset highlighted index on regeneration if needed, or keep it
+        
         for (let i = 0; i <= 24; i++) {
             let hour = START_HOUR + i; let displayHour = hour % 24; 
             let labelText = String(displayHour).padStart(2, '0') + ":00"; let pct = (i / 24) * 100;
             if (i < 24) { 
                 const line = document.createElement('div'); line.className = 'grid-line'; line.style.left = pct + '%'; grid.appendChild(line);
-                const countSlot = document.createElement('div'); countSlot.className = 'count-label'; countSlot.style.left = pct + '%'; countSlot.style.width = (100/24) + '%'; countSlot.id = 'count-' + i; countSlot.innerText = '0'; countHeader.appendChild(countSlot);
+                
+                // Add Overlay Div for Highlight
+                const overlay = document.createElement('div');
+                overlay.className = 'column-highlight';
+                overlay.style.left = pct + '%';
+                overlay.style.width = (100/24) + '%';
+                overlay.id = 'col-highlight-' + i;
+                grid.appendChild(overlay);
+
+                const countSlot = document.createElement('div'); 
+                countSlot.className = 'count-label'; 
+                countSlot.style.left = pct + '%'; 
+                countSlot.style.width = (100/24) + '%'; 
+                countSlot.id = 'count-' + i; 
+                countSlot.innerText = '0';
+                // Add Click Handler
+                countSlot.onclick = () => highlightColumn(i);
+                countHeader.appendChild(countSlot);
             }
             const label = document.createElement('div'); label.className = 'time-label'; label.innerText = labelText; label.style.left = pct + '%'; header.appendChild(label);
         }
+        // Restore highlight if active
+        if (activeHighlightIndex !== -1) highlightColumn(activeHighlightIndex);
+    }
+    
+    function highlightColumn(index) {
+        // Toggle off if clicking same
+        if (activeHighlightIndex === index) {
+            document.getElementById('col-highlight-' + index).style.display = 'none';
+            document.getElementById('count-' + index).classList.remove('count-highlight-active');
+            activeHighlightIndex = -1;
+            return;
+        }
+
+        // Turn off previous
+        if (activeHighlightIndex !== -1) {
+             const prevOverlay = document.getElementById('col-highlight-' + activeHighlightIndex);
+             const prevHeader = document.getElementById('count-' + activeHighlightIndex);
+             if (prevOverlay) prevOverlay.style.display = 'none';
+             if (prevHeader) prevHeader.classList.remove('count-highlight-active');
+        }
+
+        // Turn on new
+        const newOverlay = document.getElementById('col-highlight-' + index);
+        const newHeader = document.getElementById('count-' + index);
+        if (newOverlay) newOverlay.style.display = 'block';
+        if (newHeader) newHeader.classList.add('count-highlight-active');
+        activeHighlightIndex = index;
     }
     
     // --- UPDATED TIME & STATUS LOGIC ---
@@ -750,53 +816,56 @@
         if (initials) el.innerHTML = `<span class="bar-text-container"><span class="bar-initials">${initials}</span><span class="bar-times">${timesLabel}</span></span>`;
         return el;
     }
+    
     function getSortedIndices() {
         let sorted = []; let added = new Set(); let traineesByTrainer = {};
         shifts.forEach((s, idx) => { if(s.assignedTrainer) { if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; traineesByTrainer[s.assignedTrainer].push(idx); } });
         let indices = shifts.map((_, i) => i);
         indices.sort((a, b) => {
-            const startA = timeToOffset(shifts[a].start);
-            const startB = timeToOffset(shifts[b].start);
+            // Helper to determine the "Effective Sort Start Time"
+            const getSortStart = (s) => {
+                if (s._previewing && previewBackups.has(s.name)) {
+                    return timeToOffset(previewBackups.get(s.name).start);
+                }
+                return timeToOffset(s.start);
+            };
+            
+             // Helper for "Effective Sort End Time"
+            const getSortEnd = (s) => {
+                if (s._previewing && previewBackups.has(s.name)) {
+                    return timeToOffset(previewBackups.get(s.name).end);
+                }
+                return timeToOffset(s.end);
+            };
+
+            const startA = getSortStart(shifts[a]);
+            const startB = getSortStart(shifts[b]);
+            
             if (startA !== startB) return startA - startB;
             
-            // Secondary sort: End Time
-            const endA = timeToOffset(shifts[a].end);
-            const endB = timeToOffset(shifts[b].end);
+            const endA = getSortEnd(shifts[a]);
+            const endB = getSortEnd(shifts[b]);
             
-            // Handle wrapper logic (e.g. 0600-1400 vs 0600-1430) - simple calculation
             let durA = endA - startA; if(durA < 0) durA += 1440;
             let durB = endB - startB; if(durB < 0) durB += 1440;
             
-            // Just compare effective end times
             return (startA + durA) - (startB + durB);
         });
 
         indices.forEach((idx) => {
-            // If already added (e.g. as a trainee child), skip
             if (added.has(idx)) return; 
-            
             const s = shifts[idx];
-            
-            // If this is a trainee assigned to a valid trainer, skip (they will be added under trainer)
-            if (s.assignedTrainer) {
-                const trainerExists = shifts.some(p => p.name === s.assignedTrainer && !p._hidden);
-                if(trainerExists) return;
-            }
+            if (s.assignedTrainer && shifts.some(p => p.name === s.assignedTrainer && !p._hidden)) { return; }
 
-            // Add this "main" entry
             sorted.push(idx); added.add(idx);
 
-            // Now check if this person is a trainer and has trainees
             if (traineesByTrainer[s.name]) {
-                // Get their trainees
-                let children = traineesByTrainer[s.name];
-                
                 // Sort the trainees by time
+                let children = traineesByTrainer[s.name];
                 children.sort((a, b) => {
                     const tStartA = timeToOffset(shifts[a].start);
                     const tStartB = timeToOffset(shifts[b].start);
                     if (tStartA !== tStartB) return tStartA - tStartB;
-                    
                     const tEndA = timeToOffset(shifts[a].end);
                     const tEndB = timeToOffset(shifts[b].end);
                     let tDurA = tEndA - tStartA; if(tDurA < 0) tDurA += 1440;
@@ -804,7 +873,6 @@
                     return (tStartA + tDurA) - (tStartB + tDurB);
                 });
                 
-                // Add them immediately after
                 children.forEach(childIdx => {
                     if (!added.has(childIdx)) { sorted.push(childIdx); added.add(childIdx); }
                 });
@@ -1838,6 +1906,7 @@
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
             
+            // Re-added 20:00 Move Logic for manual edits
             if (h >= 20) {
                let s = shifts[idx];
                const newShift = {
