@@ -126,6 +126,11 @@
         }
         .count-label:hover { background-color: #eff6ff; } /* Hover effect */
         
+        .count-highlight-active {
+            background-color: #fef08a !important; /* Yellow highlight for header */
+            border-bottom: 2px solid #ca8a04;
+        }
+
         /* Column Highlight Overlay */
         .column-highlight {
             position: absolute;
@@ -1720,16 +1725,15 @@
                         }
                     } 
                 } 
-                // Fix for missing shifts for Approved XTE/CTE/OT requests
+                // Fix for missing shifts for Approved XTE/CTE/OT requests with single FROM column
                 else {
-                    if (isTos && cleanFrom && cleanTo && cleanFrom.toLowerCase() !== 'shift') {
-                         const startT = normalizeTime(cleanFrom);
-                         const endT = normalizeTime(cleanTo);
-                         if (startT && endT) {
+                    if (isTos && cleanFrom && !cleanTo) {
+                        let p = parseShiftStringForPreview(cleanFrom);
+                        if (p && p.start && p.end) {
                              if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
-                             addShift(cpc, startT, endT, 'standard', false, true); 
+                             addShift(cpc, p.start, p.end, 'standard', p.isCic, true);
                              changesMade = true;
-                         }
+                        }
                     }
                 }
                 return; 
@@ -1737,7 +1741,22 @@
 
             if (isPendingOrDenied) {
                 let details = '';
-                if (isShiftChg) { if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; } else { if (cleanFrom.toLowerCase() !== 'shift') details = `(${cleanFrom}-${cleanTo})`; }
+                if (isShiftChg) { if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; } 
+                else { 
+                    // Handle single column format: 0700-7
+                    if (!cleanTo && cleanFrom) {
+                        let p = parseShiftStringForPreview(cleanFrom);
+                        if(p && p.start && p.end) {
+                             details = `(${p.start}-${p.end})`;
+                        } else {
+                             details = `(${cleanFrom})`; 
+                        }
+                    }
+                    else if (cleanFrom.toLowerCase() !== 'shift') {
+                        details = `(${cleanFrom}-${cleanTo})`; 
+                    }
+                }
+                
                 const newReq = { cpc: cpc, type: typeRaw, details: details, status: status, isShiftChg: isShiftChg, cleanFrom: cleanFrom, cleanTo: cleanTo };
                 const isDuplicate = requests.some(r => r.cpc === newReq.cpc && r.type === newReq.type && r.details === newReq.details && r.status === newReq.status);
                 if (!isDuplicate) { requests.push(newReq); }
@@ -1793,10 +1812,39 @@
             li.classList.remove('active-preview'); 
             render();
         } else {
+            // Fix for missing TO time
+            let useStart = fromStr;
+            let useEnd = toStr;
+            let p = null;
+            
+            // Try parsing if To is missing or it looks like a combo string
+            if (!useEnd || useEnd.trim() === '') {
+                 p = parseShiftStringForPreview(useStart);
+                 if (p && p.end) {
+                     useStart = p.start;
+                     useEnd = p.end;
+                 }
+            }
+
             if (idx === -1) {
-                if (!toStr) { alert('Cannot create new shift: No time provided.'); return; }
-                let p = parseShiftStringForPreview(toStr);
-                if (!p) { alert('Cannot create new shift: Invalid time ' + toStr); return; }
+                if (!useEnd) { alert('Cannot create new shift: No time provided.'); return; }
+                
+                // If we haven't parsed it yet (e.g. valid toStr existed), parse now for safety
+                if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd); // heuristic
+                // Actually safer to just use addShift if we have raw times
+                // But addShift expects normalized.
+                // Let's use the parsed result if available, or re-parse.
+                
+                // Re-verify p
+                if (!p) {
+                     // Try creating a combo string to parse
+                     let combo = useStart;
+                     if (useEnd) combo += '-' + useEnd;
+                     p = parseShiftStringForPreview(combo);
+                }
+
+                if (!p) { alert('Cannot create new shift: Invalid time ' + useStart); return; }
+                
                 addShift(cpc, p.start, p.end, 'standard', false);
                 idx = shifts.length - 1; 
                 shifts[idx]._isNewPreview = true;
@@ -1813,19 +1861,29 @@
             if (isShiftChange) { 
                 if (toStr.toUpperCase() === 'X') { s._hidden = true; } 
                 else {
-                    let p = parseShiftStringForPreview(toStr); 
-                    if (p) { s.start = p.start; s.end = p.end; s.isCic = p.isCic; } 
+                    let p2 = parseShiftStringForPreview(toStr); 
+                    if (p2) { s.start = p2.start; s.end = p2.end; s.isCic = p2.isCic; } 
                 }
             } 
             else { 
                 if (isTos) {
-                    if(!s.tosRanges) s.tosRanges = [];
-                    s.tosRanges.push({start: normalizeTime(fromStr), end: normalizeTime(toStr)});
+                    if(!s._isNewPreview) { // Only add TOS if existing shift
+                        if(!s.tosRanges) s.tosRanges = [];
+                        let normStart = normalizeTime(useStart);
+                        let normEnd = normalizeTime(useEnd);
+                        if(normStart && normEnd) {
+                            s.tosRanges.push({start: normStart, end: normEnd});
+                        }
+                    }
                 } else {
                     if (isFullLeave) { s.leaveRanges = [{start: s.start, end: s.end}]; } 
                     else { 
                         if(!s.leaveRanges) s.leaveRanges = [];
-                        s.leaveRanges.push({start: normalizeTime(fromStr), end: normalizeTime(toStr)});
+                        let normStart = normalizeTime(useStart);
+                        let normEnd = normalizeTime(useEnd);
+                        if(normStart && normEnd) {
+                            s.leaveRanges.push({start: normStart, end: normEnd});
+                        }
                     } 
                 }
             }
@@ -1860,8 +1918,12 @@
             } else { end = normalizeTime(p2); }
         } 
         else {
-            let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
-            let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+            // Handle single time string e.g. "0800" -> 0800-1600 (8h default)
+            // But verify it looks like a time
+            if (start.length === 5) {
+                let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
+                let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+            }
         }
         return { start, end, isCic };
     }
@@ -1994,6 +2056,7 @@
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
             
+            // Re-added 20:00 Move Logic for manual edits
             if (h >= 20) {
                let s = shifts[idx];
                const newShift = {
