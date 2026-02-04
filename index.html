@@ -1041,6 +1041,18 @@
             // RENDER MULTIPLE TOS BARS
             if (shift.tosRanges && shift.tosRanges.length > 0) {
                 shift.tosRanges.forEach(r => {
+                    // Logic to check overlap with Main Shift (meta.start to meta.end)
+                    let ts = timeToOffset(r.start);
+                    let te = timeToOffset(r.end);
+                    let tDur = te - ts; if (tDur < 0) tDur += 1440;
+                    let tEndLinear = ts + tDur;
+
+                    let overlaps = false;
+                    if (getOverlap(meta.start, meta.end, ts, tEndLinear) > 0) overlaps = true;
+                    if (getOverlap(meta.start, meta.end, ts + 1440, tEndLinear + 1440) > 0) overlaps = true;
+
+                    if (overlaps) return; // Skip rendering
+
                     const tb = createBarElement(r.start, r.end, 'tos-bar', 'TOS', `${r.start}-${r.end}`);
                     if(tb) { 
                         tb.onclick = () => openEditModal(index); 
@@ -1103,20 +1115,11 @@
                     let sOffset = timeToOffset(ps.start);
                     let eOffset = timeToOffset(ps.end);
                     let dur = eOffset - sOffset; if (dur < 0) dur += 1440;
-                    // Standardize: Relative to Prev Day 00:00.
-                    // Start offset is relative to 04:00. 04:00 is +240 mins from 00:00.
-                    // Let's assume day boundaries.
-                    // Simpler: Just get end time. 
-                    // Case 1: 1400-2200. End=22:00. Mins from 00:00 = 1320.
-                    // Case 2: 2000-0400. End=04:00 (Next day). Mins = 1680.
-                    // My Offset 0 = 04:00.
                     let endAbsolute = sOffset + dur; // Relative to 04:00
                     if (endAbsolute > latestEndMins) latestEndMins = endAbsolute;
                 });
                 
                 // Current start relative to 04:00 of *Prev Day*.
-                // Current start is `timeToOffset(shift.start)` relative to 04:00 Today.
-                // Today is +1440 mins from Prev Day.
                 let currentStartAbs = timeToOffset(shift.start) + 1440;
                 let gapMins = currentStartAbs - latestEndMins;
                 let gapVal = (gapMins / 60).toFixed(1);
@@ -1133,7 +1136,6 @@
                 let earliestStartMins = Infinity;
                 myNextShifts.forEach(ns => {
                      let sOffset = timeToOffset(ns.start);
-                     // Next Day 04:00 is +1440 from Today 04:00.
                      let startAbsolute = sOffset + 1440;
                      if (startAbsolute < earliestStartMins) earliestStartMins = startAbsolute;
                 });
@@ -1509,6 +1511,7 @@
             if (dLines[0]) {
                 dLines[0].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, '');
                     if (!cleanName || cleanName === '-') return;
 
                     if (cleanName && cleanName !== "-") {
@@ -1555,6 +1558,7 @@
             if (dLines[1]) {
                 dLines[1].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, '');
                     if (!cleanName || cleanName === '-') return;
 
                     if (cleanName && cleanName !== "-") {
@@ -1582,6 +1586,7 @@
             if (dLines[2]) {
                 dLines[2].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, '');
                     if (!cleanName || cleanName === '-') return;
 
                     if (cleanName && cleanName !== "-") {
@@ -1713,9 +1718,14 @@
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
                     if (isTos) {
-                        if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
-                        addRangeUnique(shifts[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
-                        changesMade = true;
+                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO
+                        if (cleanFrom && !cleanTo) {
+                            // Do nothing. Person is already on schedule, so single 'from' time XTE request is irrelevant.
+                        } else {
+                            if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
+                            addRangeUnique(shifts[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
+                            changesMade = true;
+                        }
                     }
                     else if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
@@ -1727,12 +1737,24 @@
                 } 
                 // Fix for missing shifts for Approved XTE/CTE/OT requests with single FROM column
                 else {
-                    if (isTos && cleanFrom && !cleanTo) {
-                        let p = parseShiftStringForPreview(cleanFrom);
-                        if (p && p.start && p.end) {
-                             if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
-                             addShift(cpc, p.start, p.end, 'standard', p.isCic, true);
-                             changesMade = true;
+                    if (isTos) {
+                        if (cleanFrom && !cleanTo) {
+                             // "Shift Style" request (0700-7) and user NOT on schedule -> Create Blue Shift
+                             let p = parseShiftStringForPreview(cleanFrom);
+                             if (p && p.start && p.end) {
+                                  if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
+                                  addShift(cpc, p.start, p.end, 'standard', p.isCic, true);
+                                  changesMade = true;
+                             }
+                        } else if (cleanFrom && cleanTo) {
+                             // "Time Style" request (05:00-15:00) and user NOT on schedule -> Create Blue Shift
+                             const startT = normalizeTime(cleanFrom);
+                             const endT = normalizeTime(cleanTo);
+                             if (startT && endT) {
+                                 if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
+                                 addShift(cpc, startT, endT, 'standard', false, true); 
+                                 changesMade = true;
+                             }
                         }
                     }
                 }
@@ -1831,10 +1853,6 @@
                 
                 // If we haven't parsed it yet (e.g. valid toStr existed), parse now for safety
                 if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd); // heuristic
-                // Actually safer to just use addShift if we have raw times
-                // But addShift expects normalized.
-                // Let's use the parsed result if available, or re-parse.
-                
                 // Re-verify p
                 if (!p) {
                      // Try creating a combo string to parse
@@ -1867,7 +1885,12 @@
             } 
             else { 
                 if (isTos) {
-                    if(!s._isNewPreview) { // Only add TOS if existing shift
+                    // Check if NEW shift or EXISTING
+                    if(s._isNewPreview) {
+                         // New shift created -> Keep it BLUE (don't add TOS range)
+                         // Shift already has start/end set by addShift above.
+                    } else {
+                        // Existing shift -> Add Green Bar
                         if(!s.tosRanges) s.tosRanges = [];
                         let normStart = normalizeTime(useStart);
                         let normEnd = normalizeTime(useEnd);
@@ -2056,7 +2079,6 @@
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
             
-            // Re-added 20:00 Move Logic for manual edits
             if (h >= 20) {
                let s = shifts[idx];
                const newShift = {
