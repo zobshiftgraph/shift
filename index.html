@@ -248,6 +248,8 @@
         .btn-icon { padding: 4px 8px; font-size: 0.75rem; margin-left: 2px; border-radius: 3px; border:none; color:white; cursor:pointer;}
         .btn-edit { background-color: #f59e0b; }
         .btn-del { background-color: var(--danger-color); }
+        .btn-commit { background-color: #22c55e; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; padding: 0; font-size: 0.8rem; border-radius: 4px;}
+        .btn-commit:hover { background-color: #16a34a; }
 
         .trainer-dropdown { margin-top: 4px; padding: 2px; font-size: 0.75rem; border: 1px solid #d8b4fe; border-radius: 4px; background: #fff; width: 100%; max-width: 100%; cursor: pointer; }
 
@@ -269,8 +271,9 @@
         .status-badge-req { color: white; padding: 2px 5px; border-radius: 3px; font-size: 0.65rem; text-transform: uppercase; font-weight: bold; }
         .bg-pending { background-color: var(--pending-color); }
         .bg-denied { background-color: var(--denied-color); }
-        .req-info { display: flex; flex-direction: column; width: 85%; }
-        .req-delete { width: 10%; text-align: right; color: #aaa; font-size: 1.1em; }
+        .req-info { display: flex; flex-direction: column; width: 80%; }
+        .req-actions { width: 18%; text-align: right; display: flex; justify-content: flex-end; gap: 5px; align-items: center;}
+        .req-delete { color: #aaa; font-size: 1.1em; cursor: pointer; }
         .req-delete:hover { color: #c0392b; }
 
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
@@ -487,7 +490,7 @@
     const MAX_HISTORY = 50;
 
     function pushHistory() {
-        const state = JSON.stringify(shifts);
+        const state = JSON.stringify({ shifts, requests });
         undoStack.push(state);
         if (undoStack.length > MAX_HISTORY) undoStack.shift();
         redoStack = []; 
@@ -496,21 +499,29 @@
 
     function undo() {
         if (undoStack.length === 0) return;
-        const current = JSON.stringify(shifts);
-        redoStack.push(current);
-        const prev = undoStack.pop();
-        shifts = JSON.parse(prev);
+        const currentState = JSON.stringify({ shifts, requests });
+        redoStack.push(currentState);
+        const prevState = JSON.parse(undoStack.pop());
+        shifts = prevState.shifts;
+        requests = prevState.requests;
         saveData(false); 
+        saveRequests();
+        render();
+        renderRequests();
         updateUndoRedoButtons();
     }
 
     function redo() {
         if (redoStack.length === 0) return;
-        const current = JSON.stringify(shifts);
-        undoStack.push(current);
-        const next = redoStack.pop();
-        shifts = JSON.parse(next);
-        saveData(false); 
+        const currentState = JSON.stringify({ shifts, requests });
+        undoStack.push(currentState);
+        const nextState = JSON.parse(redoStack.pop());
+        shifts = nextState.shifts;
+        requests = nextState.requests;
+        saveData(false);
+        saveRequests();
+        render();
+        renderRequests();
         updateUndoRedoButtons();
     }
 
@@ -601,7 +612,10 @@
                     <span><strong>${req.cpc}</strong>: ${req.type} ${req.details}</span>
                     <span class="status-badge-req ${isPending ? 'bg-pending' : 'bg-denied'}" style="width: fit-content; margin-top:3px;">${req.status}</span>
                 </div>
-                <div class="req-delete" onclick="deleteRequest(${idx})" title="Remove request">🗑</div>
+                <div class="req-actions">
+                    <button class="btn-commit" onclick="commitRequest(${idx}, event)" title="Commit change">✓</button>
+                    <div class="req-delete" onclick="deleteRequest(${idx})" title="Remove request">🗑</div>
+                </div>
             `;
             listEl.appendChild(li);
         });
@@ -615,6 +629,88 @@
         }
         requests.splice(idx, 1);
         saveRequests();
+        renderRequests();
+    }
+
+    // NEW FUNCTION: Commit Request
+    function commitRequest(idx, event) {
+        event.stopPropagation(); // Prevent toggling preview
+        
+        // 1. Get the request
+        const req = requests[idx];
+        
+        // 2. Push history state before modifying
+        pushHistory();
+
+        // 3. Apply the logic (similar to toggleRequestPreview but permanent)
+        let targetIdx = shifts.findIndex(s => s.name === req.cpc);
+        
+        let useStart = req.cleanFrom;
+        let useEnd = req.cleanTo;
+        let p = null;
+        if (!useEnd || useEnd.trim() === '') {
+             p = parseShiftStringForPreview(useStart);
+             if (p && p.end) { useStart = p.start; useEnd = p.end; }
+        }
+
+        if (targetIdx === -1) {
+             // Create New Shift
+             if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd);
+             if (!p) {
+                 let combo = useStart; if (useEnd) combo += '-' + useEnd;
+                 p = parseShiftStringForPreview(combo);
+             }
+             if (p) {
+                 addShift(req.cpc, p.start, p.end, 'standard', false);
+             } else {
+                 alert("Could not parse time for commit: " + useStart);
+                 // We pushed history, so just return, user can undo if needed or fix manually
+                 return;
+             }
+        } else {
+            // Edit Existing Shift
+            let s = shifts[targetIdx];
+            
+            if (req.isShiftChg) {
+                 if (req.cleanTo.toUpperCase() === 'X') {
+                     // Delete/Hide Shift
+                     // Actually better to delete it or mark hidden? 
+                     // System uses _hidden for temporary hides, but commit implies permanent.
+                     // Let's delete it.
+                     shifts.splice(targetIdx, 1);
+                 } else {
+                     let p2 = parseShiftStringForPreview(req.cleanTo);
+                     if (p2) { s.start = p2.start; s.end = p2.end; s.isCic = p2.isCic; }
+                 }
+            } else {
+                const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+                const isFullLeave = (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift');
+                
+                if (isTos) {
+                    if(!s.tosRanges) s.tosRanges = [];
+                    let normStart = normalizeTime(useStart);
+                    let normEnd = normalizeTime(useEnd);
+                    if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
+                } else {
+                     if (isFullLeave) { 
+                         s.leaveRanges = [{start: s.start, end: s.end}]; 
+                     } else {
+                         if(!s.leaveRanges) s.leaveRanges = [];
+                         let normStart = normalizeTime(useStart);
+                         let normEnd = normalizeTime(useEnd);
+                         if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
+                     }
+                }
+            }
+        }
+
+        // 4. Remove request from list
+        requests.splice(idx, 1);
+
+        // 5. Save & Render
+        saveData(false);
+        saveRequests();
+        render();
         renderRequests();
     }
 
@@ -1115,6 +1211,13 @@
                     let sOffset = timeToOffset(ps.start);
                     let eOffset = timeToOffset(ps.end);
                     let dur = eOffset - sOffset; if (dur < 0) dur += 1440;
+                    // Standardize: Relative to Prev Day 00:00.
+                    // Start offset is relative to 04:00. 04:00 is +240 mins from 00:00.
+                    // Let's assume day boundaries.
+                    // Simpler: Just get end time. 
+                    // Case 1: 1400-2200. End=22:00. Mins from 00:00 = 1320.
+                    // Case 2: 2000-0400. End=04:00 (Next day). Mins = 1680.
+                    // My Offset 0 = 04:00.
                     let endAbsolute = sOffset + dur; // Relative to 04:00
                     if (endAbsolute > latestEndMins) latestEndMins = endAbsolute;
                 });
@@ -1126,7 +1229,7 @@
                 let gapDisplay = gapVal.endsWith('.0') ? gapVal.slice(0, -2) : gapVal;
                 
                 let redClass = gapMins < 600 ? 'gap-warning' : ''; // 10h = 600m
-                prevRestHtml = `<div class="emp-notes" style="margin-top:2px;">Previous Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
+                prevRestHtml = `<div class="emp-notes" style="margin-top:2px;">Prev Rest: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
              // 2. Check Next Day
@@ -1136,6 +1239,7 @@
                 let earliestStartMins = Infinity;
                 myNextShifts.forEach(ns => {
                      let sOffset = timeToOffset(ns.start);
+                     // Next Day 04:00 is +1440 from Today 04:00.
                      let startAbsolute = sOffset + 1440;
                      if (startAbsolute < earliestStartMins) earliestStartMins = startAbsolute;
                 });
@@ -1151,7 +1255,7 @@
                 let gapDisplay = gapVal.endsWith('.0') ? gapVal.slice(0, -2) : gapVal;
 
                 let redClass = gapMins < 600 ? 'gap-warning' : '';
-                nextRestHtml = `<div class="emp-notes" style="margin-top:2px;">Next Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
+                nextRestHtml = `<div class="emp-notes" style="margin-top:2px;">Next Rest: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
             // --- TRAINER DROPDOWN GENERATION ---
@@ -1890,12 +1994,15 @@
                          // New shift created -> Keep it BLUE (don't add TOS range)
                          // Shift already has start/end set by addShift above.
                     } else {
-                        // Existing shift -> Add Green Bar
-                        if(!s.tosRanges) s.tosRanges = [];
-                        let normStart = normalizeTime(useStart);
-                        let normEnd = normalizeTime(useEnd);
-                        if(normStart && normEnd) {
-                            s.tosRanges.push({start: normStart, end: normEnd});
+                        // Existing shift -> Add Green Bar if Time provided.
+                        // If no "TO" time provided, IGNORE (per updated requirement)
+                        if (useStart && useEnd) {
+                            if(!s.tosRanges) s.tosRanges = [];
+                            let normStart = normalizeTime(useStart);
+                            let normEnd = normalizeTime(useEnd);
+                            if(normStart && normEnd) {
+                                s.tosRanges.push({start: normStart, end: normEnd});
+                            }
                         }
                     }
                 } else {
@@ -2079,6 +2186,7 @@
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
             
+            // Re-added 20:00 Move Logic for manual edits
             if (h >= 20) {
                let s = shifts[idx];
                const newShift = {
@@ -2111,6 +2219,86 @@
             };
             saveData(false); closeModal('editModal');
         }
+    }
+
+    // NEW FUNCTION: Commit Request
+    function commitRequest(idx, event) {
+        event.stopPropagation(); // Prevent toggling preview
+        
+        // 1. Get the request
+        const req = requests[idx];
+        
+        // 2. Push history state before modifying
+        pushHistory();
+
+        // 3. Apply the logic (similar to toggleRequestPreview but permanent)
+        let targetIdx = shifts.findIndex(s => s.name === req.cpc);
+        
+        let useStart = req.cleanFrom;
+        let useEnd = req.cleanTo;
+        let p = null;
+        if (!useEnd || useEnd.trim() === '') {
+             p = parseShiftStringForPreview(useStart);
+             if (p && p.end) { useStart = p.start; useEnd = p.end; }
+        }
+
+        if (targetIdx === -1) {
+             // Create New Shift
+             if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd);
+             if (!p) {
+                 let combo = useStart; if (useEnd) combo += '-' + useEnd;
+                 p = parseShiftStringForPreview(combo);
+             }
+             if (p) {
+                 addShift(req.cpc, p.start, p.end, 'standard', false);
+             } else {
+                 alert("Could not parse time for commit: " + useStart);
+                 return;
+             }
+        } else {
+            // Edit Existing Shift
+            let s = shifts[targetIdx];
+            
+            if (req.isShiftChg) {
+                 if (req.cleanTo.toUpperCase() === 'X') {
+                     shifts.splice(targetIdx, 1);
+                 } else {
+                     let p2 = parseShiftStringForPreview(req.cleanTo);
+                     if (p2) { s.start = p2.start; s.end = p2.end; s.isCic = p2.isCic; }
+                 }
+            } else {
+                const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+                const isFullLeave = (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift');
+                
+                if (isTos) {
+                    if(!s.tosRanges) s.tosRanges = [];
+                    // Only add if Time Provided
+                    if (useStart && useEnd) {
+                       let normStart = normalizeTime(useStart);
+                       let normEnd = normalizeTime(useEnd);
+                       if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
+                    }
+                } else {
+                     if (isFullLeave) { 
+                         s.leaveRanges = [{start: s.start, end: s.end}]; 
+                     } else {
+                         if(!s.leaveRanges) s.leaveRanges = [];
+                         let normStart = normalizeTime(useStart);
+                         let normEnd = normalizeTime(useEnd);
+                         if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
+                     }
+                }
+            }
+        }
+
+        // 4. Remove request from list
+        requests.splice(idx, 1);
+
+        // 5. Save & Render
+        saveData(false);
+        saveRequests();
+        render();
+        renderRequests();
     }
 </script>
 </body>
