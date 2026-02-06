@@ -664,7 +664,6 @@
                  addShift(req.cpc, p.start, p.end, 'standard', false);
              } else {
                  alert("Could not parse time for commit: " + useStart);
-                 // We pushed history, so just return, user can undo if needed or fix manually
                  return;
              }
         } else {
@@ -674,9 +673,6 @@
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
                      // Delete/Hide Shift
-                     // Actually better to delete it or mark hidden? 
-                     // System uses _hidden for temporary hides, but commit implies permanent.
-                     // Let's delete it.
                      shifts.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
@@ -688,9 +684,12 @@
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
-                    let normStart = normalizeTime(useStart);
-                    let normEnd = normalizeTime(useEnd);
-                    if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
+                    // Only add if Time Provided
+                    if (useStart && useEnd) {
+                       let normStart = normalizeTime(useStart);
+                       let normEnd = normalizeTime(useEnd);
+                       if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
+                    }
                 } else {
                      if (isFullLeave) { 
                          s.leaveRanges = [{start: s.start, end: s.end}]; 
@@ -1081,6 +1080,23 @@
                         workStart = lEndLinear;
                     }
                 });
+
+                // Adjust End
+                let sortedEnd = [...shift.leaveRanges].sort((a,b) => {
+                     let ae = timeToOffset(a.end); let be = timeToOffset(b.end);
+                     return be - ae;
+                });
+                
+                sortedEnd.forEach(r => {
+                    let ls = timeToOffset(r.start);
+                    let le = timeToOffset(r.end);
+                    let lDur = le - ls; if(lDur < 0) lDur += 1440;
+                    let lEndLinear = ls + lDur;
+                    
+                    if (lEndLinear >= workEnd - 1 && ls < workEnd) {
+                        workEnd = ls;
+                    }
+                });
             }
             
             let workDuration = workEnd - workStart;
@@ -1223,13 +1239,15 @@
                 });
                 
                 // Current start relative to 04:00 of *Prev Day*.
+                // Current start is `timeToOffset(shift.start)` relative to 04:00 Today.
+                // Today is +1440 mins from Prev Day.
                 let currentStartAbs = timeToOffset(shift.start) + 1440;
                 let gapMins = currentStartAbs - latestEndMins;
                 let gapVal = (gapMins / 60).toFixed(1);
                 let gapDisplay = gapVal.endsWith('.0') ? gapVal.slice(0, -2) : gapVal;
                 
                 let redClass = gapMins < 600 ? 'gap-warning' : ''; // 10h = 600m
-                prevRestHtml = `<div class="emp-notes" style="margin-top:2px;">Prev Rest: <span class="${redClass}">${gapDisplay}h</span></div>`;
+                prevRestHtml = `<div class="emp-notes" style="margin-top:2px;">Previous Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
              // 2. Check Next Day
@@ -1255,7 +1273,7 @@
                 let gapDisplay = gapVal.endsWith('.0') ? gapVal.slice(0, -2) : gapVal;
 
                 let redClass = gapMins < 600 ? 'gap-warning' : '';
-                nextRestHtml = `<div class="emp-notes" style="margin-top:2px;">Next Rest: <span class="${redClass}">${gapDisplay}h</span></div>`;
+                nextRestHtml = `<div class="emp-notes" style="margin-top:2px;">Next Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
             // --- TRAINER DROPDOWN GENERATION ---
@@ -1615,7 +1633,7 @@
             if (dLines[0]) {
                 dLines[0].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, '');
+                    cleanName = cleanName.replace(/[\[\]]/g, ''); // Remove brackets
                     if (!cleanName || cleanName === '-') return;
 
                     if (cleanName && cleanName !== "-") {
