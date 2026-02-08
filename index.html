@@ -652,6 +652,12 @@
              p = parseShiftStringForPreview(useStart);
              if (p && p.end) { useStart = p.start; useEnd = p.end; }
         }
+        
+        // If it's a full leave for "shift", get the existing shift times
+        if (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift' && targetIdx !== -1) {
+            useStart = shifts[targetIdx].start;
+            useEnd = shifts[targetIdx].end;
+        }
 
         if (targetIdx === -1) {
              // Create New Shift
@@ -680,7 +686,6 @@
                  }
             } else {
                 const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-                const isFullLeave = (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift');
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
@@ -691,14 +696,11 @@
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     if (isFullLeave) { 
-                         s.leaveRanges = [{start: s.start, end: s.end}]; 
-                     } else {
-                         if(!s.leaveRanges) s.leaveRanges = [];
-                         let normStart = normalizeTime(useStart);
-                         let normEnd = normalizeTime(useEnd);
-                         if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
-                     }
+                     // Leave (Partial or Full)
+                     if(!s.leaveRanges) s.leaveRanges = [];
+                     let normStart = normalizeTime(useStart);
+                     let normEnd = normalizeTime(useEnd);
+                     if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
                 }
             }
         }
@@ -1062,40 +1064,39 @@
             
             const row = document.createElement('div'); row.className = 'shift-row';
             
-            // Recalculate workStart based on leave at the beginning (for visual WX positioning)
+            // Recalculate workStart based on leave at the beginning/end for centering
             let workStart = meta.start; 
             let workEnd = meta.end;
 
             if (shift.leaveRanges && shift.leaveRanges.length > 0) {
-                // Sort by start time
+                // Adjust Start: Find leave that starts at or before shift start and push workStart forward
                 let sortedL = [...shift.leaveRanges].sort((a,b) => timeToOffset(a.start) - timeToOffset(b.start));
                 sortedL.forEach(r => {
                     let ls = timeToOffset(r.start);
                     let le = timeToOffset(r.end);
                     let lDur = le - ls; if(lDur < 0) lDur += 1440;
                     let lEndLinear = ls + lDur;
-
-                    // If leave overlaps the current work start, push work start out
+                    // Tolerance check: if leave starts approx at shift start
                     if (ls <= workStart + 1 && lEndLinear > workStart) {
                         workStart = lEndLinear;
                     }
                 });
-
-                // Adjust End
-                let sortedEnd = [...shift.leaveRanges].sort((a,b) => {
-                     let ae = timeToOffset(a.end); let be = timeToOffset(b.end);
-                     return be - ae;
-                });
                 
-                sortedEnd.forEach(r => {
-                    let ls = timeToOffset(r.start);
-                    let le = timeToOffset(r.end);
-                    let lDur = le - ls; if(lDur < 0) lDur += 1440;
-                    let lEndLinear = ls + lDur;
-                    
-                    if (lEndLinear >= workEnd - 1 && ls < workEnd) {
-                        workEnd = ls;
-                    }
+                // Adjust End: Find leave that ends at or after shift end and push workEnd backward
+                let sortedLEnd = [...shift.leaveRanges].sort((a,b) => timeToOffset(b.end) - timeToOffset(a.end));
+                sortedLEnd.forEach(r => {
+                     let ls = timeToOffset(r.start);
+                     let le = timeToOffset(r.end);
+                     let lDur = le - ls; if(lDur < 0) lDur += 1440;
+                     // Work in linear space relative to shift start
+                     let relStart = ls - meta.start; if(relStart < 0) relStart += 1440;
+                     let relEnd = le - meta.start; if(relEnd < 0) relEnd += 1440;
+                     let relWorkEnd = workEnd - meta.start; if(relWorkEnd < 0) relWorkEnd += 1440;
+
+                     if (Math.abs(relEnd - relWorkEnd) < 2) { // 2 min tolerance
+                         // This leave ends at shift end. New work end is this leave's start.
+                         workEnd = meta.start + relStart;
+                     }
                 });
             }
             
@@ -1366,8 +1367,6 @@
                     }
                 }
 
-                if (!shouldCount) return;
-
                 // 3. CALCULATE MINUTES PRESENT
                 let minutesPresent = 0;
 
@@ -1396,26 +1395,27 @@
                      effectiveEnd = end - 60;
                 }
 
-                // Calculate overlap
-                let mainOverlap = getOverlap(start, effectiveEnd, hourStart, hourEnd);
+                // Calculate overlap - ONLY if main shift counts
+                let mainOverlap = 0;
+                if (shouldCount) {
+                     mainOverlap = getOverlap(start, effectiveEnd, hourStart, hourEnd);
 
-                // Subtract ALL Leave Ranges
-                if (s.leaveRanges) {
-                    s.leaveRanges.forEach(r => {
-                        let ls = timeToOffset(r.start);
-                        let le = timeToOffset(r.end);
-                        // Handle leave wrapping if necessary (rare for day shifts, but safe)
-                        let lDur = le - ls; if (lDur < 0) lDur += 1440;
-                        let lEnd = ls + lDur;
-                        
-                        let leaveOverlap = getOverlap(ls, lEnd, hourStart, hourEnd);
-                        mainOverlap -= leaveOverlap;
-                    });
+                     // Subtract ALL Leave Ranges
+                     if (s.leaveRanges) {
+                         s.leaveRanges.forEach(r => {
+                             let ls = timeToOffset(r.start);
+                             let le = timeToOffset(r.end);
+                             let lDur = le - ls; if (lDur < 0) lDur += 1440;
+                             let lEnd = ls + lDur;
+                             
+                             let leaveOverlap = getOverlap(ls, lEnd, hourStart, hourEnd);
+                             mainOverlap -= leaveOverlap;
+                         });
+                     }
                 }
-
                 if (mainOverlap > 0) minutesPresent += mainOverlap;
 
-                // Add ALL TOS Ranges
+                // Add ALL TOS Ranges (ALWAYS COUNT, regardless of shouldCount)
                 if (s.tosRanges) {
                     s.tosRanges.forEach(r => {
                         let ts = timeToOffset(r.start);
@@ -1769,13 +1769,8 @@
         let changesMade = false;
         let snapshotNeeded = false;
 
-        // Helper to avoid duplicate ranges in data
-        const addRangeUnique = (arr, newR) => {
-            if (!arr.some(r => r.start === newR.start && r.end === newR.end)) {
-                arr.push(newR);
-            }
-        };
-
+        // 1. PARSE ALL INTO OBJECTS FIRST
+        let parsedRows = [];
         lines.forEach(line => {
             if (!line.trim()) return;
             let cols = line.split(/\t/);
@@ -1790,7 +1785,6 @@
 
             let cpcRaw = cols[0].trim();
             let cpc = cpcRaw.replace(/[$]/g, '').trim();
-
             const status = cols[statusIndex].trim();
             let typeRaw = cols[1].trim();
             let from, to;
@@ -1802,20 +1796,43 @@
             
             let cleanFrom = from; if (cleanFrom.toLowerCase() !== 'shift') cleanFrom = cleanFrom.replace(/f/gi, '');
             let cleanTo = to; if (cleanTo.toLowerCase() !== 'shift') cleanTo = cleanTo.replace(/f/gi, '');
-            
+
+            const isApproved = status.toLowerCase().includes('approved');
             const isLeave = ['Annual', 'Sick', 'Holiday', 'XTU', 'Admin', 'Furlough', 'Blood'].some(t => typeRaw.toLowerCase().includes(t.toLowerCase()));
             const isShiftChg = typeRaw.toLowerCase().includes('shift chg');
-            const isTos = ['XTE', 'CTE', 'OT'].some(t => typeRaw.toUpperCase().includes(t)); 
-            const isApproved = status.toLowerCase().includes('approved');
+            const isTos = ['XTE', 'CTE', 'OT'].some(t => typeRaw.toUpperCase().includes(t));
             const isPendingOrDenied = status.toLowerCase().includes('pending') || status.toLowerCase().includes('denied');
-            
-            if (isApproved) {
+
+            parsedRows.push({
+                cpc, status, typeRaw, from, to, cleanFrom, cleanTo, isApproved, isLeave, isShiftChg, isTos, isPendingOrDenied
+            });
+        });
+
+        // 2. DETECT APPROVED FULL SHIFT LEAVES
+        const approvedFullLeaves = new Set();
+        parsedRows.forEach(r => {
+            if (r.isApproved && r.isLeave && r.cleanFrom.toLowerCase() === 'shift') {
+                approvedFullLeaves.add(r.cpc);
+            }
+        });
+
+        // 3. PROCESS
+        const addRangeUnique = (arr, newR) => {
+            if (!arr.some(r => r.start === newR.start && r.end === newR.end)) {
+                arr.push(newR);
+            }
+        };
+
+        parsedRows.forEach(r => {
+             const { cpc, cleanFrom, cleanTo, isTos, isLeave, isShiftChg, isApproved, isPendingOrDenied, status, typeRaw } = r;
+
+             if (isApproved) {
                 let updateTargetIdx = -1;
                 if (isShiftChg) {
                     const idx = shifts.findIndex(s => s.name === cpc);
                     if (idx !== -1) {
                         if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
-                        let p = parseShiftStringForPreview(to);
+                        let p = parseShiftStringForPreview(r.to);
                         if (p) {
                             let h = parseInt(p.start.substring(0,2));
                             if (h >= 20) {
@@ -1840,9 +1857,9 @@
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
                     if (isTos) {
-                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO
+                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO AND USER ON SCHEDULE
                         if (cleanFrom && !cleanTo) {
-                            // Do nothing. Person is already on schedule, so single 'from' time XTE request is irrelevant.
+                            // Do nothing. 
                         } else {
                             if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
                             addRangeUnique(shifts[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
@@ -1857,7 +1874,6 @@
                         }
                     } 
                 } 
-                // Fix for missing shifts for Approved XTE/CTE/OT requests with single FROM column
                 else {
                     if (isTos) {
                         if (cleanFrom && !cleanTo) {
@@ -1880,21 +1896,23 @@
                         }
                     }
                 }
-                return; 
-            }
+             }
+             else if (isPendingOrDenied) {
+                 const isDenied = status.toLowerCase().includes('denied');
+                 const isFullLeaveReq = isLeave && cleanFrom.toLowerCase() === 'shift';
 
-            if (isPendingOrDenied) {
+                 // THE FILTER: Skip denied full-shift leave if an approved one exists
+                 if (isDenied && isFullLeaveReq && approvedFullLeaves.has(cpc)) {
+                     return; 
+                 }
+
                 let details = '';
                 if (isShiftChg) { if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; } 
                 else { 
-                    // Handle single column format: 0700-7
                     if (!cleanTo && cleanFrom) {
                         let p = parseShiftStringForPreview(cleanFrom);
-                        if(p && p.start && p.end) {
-                             details = `(${p.start}-${p.end})`;
-                        } else {
-                             details = `(${cleanFrom})`; 
-                        }
+                        if(p && p.start && p.end) { details = `(${p.start}-${p.end})`; } 
+                        else { details = `(${cleanFrom})`; }
                     }
                     else if (cleanFrom.toLowerCase() !== 'shift') {
                         details = `(${cleanFrom}-${cleanTo})`; 
@@ -1904,7 +1922,7 @@
                 const newReq = { cpc: cpc, type: typeRaw, details: details, status: status, isShiftChg: isShiftChg, cleanFrom: cleanFrom, cleanTo: cleanTo };
                 const isDuplicate = requests.some(r => r.cpc === newReq.cpc && r.type === newReq.type && r.details === newReq.details && r.status === newReq.status);
                 if (!isDuplicate) { requests.push(newReq); }
-            }
+             }
         });
         
         saveRequests();
@@ -2259,6 +2277,12 @@
              p = parseShiftStringForPreview(useStart);
              if (p && p.end) { useStart = p.start; useEnd = p.end; }
         }
+        
+        // If it's a full leave for "shift", get the existing shift times
+        if (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift' && targetIdx !== -1) {
+            useStart = shifts[targetIdx].start;
+            useEnd = shifts[targetIdx].end;
+        }
 
         if (targetIdx === -1) {
              // Create New Shift
@@ -2279,6 +2303,7 @@
             
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
+                     // Delete/Hide Shift
                      shifts.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
@@ -2286,7 +2311,6 @@
                  }
             } else {
                 const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-                const isFullLeave = (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift');
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
@@ -2297,14 +2321,11 @@
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     if (isFullLeave) { 
-                         s.leaveRanges = [{start: s.start, end: s.end}]; 
-                     } else {
-                         if(!s.leaveRanges) s.leaveRanges = [];
-                         let normStart = normalizeTime(useStart);
-                         let normEnd = normalizeTime(useEnd);
-                         if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
-                     }
+                     // Leave (Partial or Full)
+                     if(!s.leaveRanges) s.leaveRanges = [];
+                     let normStart = normalizeTime(useStart);
+                     let normEnd = normalizeTime(useEnd);
+                     if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
                 }
             }
         }
