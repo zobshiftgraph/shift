@@ -335,7 +335,7 @@
         <span class="stat-box eve">Eve: 0</span>
     </div>
 
-    <button onclick="openPreDutyModal()">Paste Pre-Duty WX</button>
+    <button onclick="initiatePreDutyPaste()">Paste Pre-Duty WX</button>
     <button onclick="undo()" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button onclick="redo()" id="btnRedo" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     
@@ -651,12 +651,16 @@
         let useEnd = req.cleanTo;
         let p = null;
         if (!useEnd || useEnd.trim() === '') {
-             p = parseShiftStringForPreview(useStart);
-             if (p && p.end) { useStart = p.start; useEnd = p.end; }
+             // Don't try parsing "Shift" as a time string
+             if (useStart.toLowerCase() !== 'shift') {
+                 p = parseShiftStringForPreview(useStart);
+                 if (p && p.end) { useStart = p.start; useEnd = p.end; }
+             }
         }
         
         // If it's a full leave for "shift", get the existing shift times
-        if (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift' && targetIdx !== -1) {
+        let isFullShiftLeave = !req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift';
+        if (isFullShiftLeave && targetIdx !== -1) {
             useStart = shifts[targetIdx].start;
             useEnd = shifts[targetIdx].end;
         }
@@ -688,7 +692,6 @@
                  }
             } else {
                 const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-                const isFullLeave = (!req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift');
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
@@ -699,8 +702,9 @@
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     if (isFullLeave) { 
-                         // Full shift leave committed -> Remove shift from graph
+                     // Leave (Partial or Full)
+                     if (isFullShiftLeave) {
+                         // Full Shift Leave -> DELETE SHIFT
                          shifts.splice(targetIdx, 1);
                      } else {
                          if(!s.leaveRanges) s.leaveRanges = [];
@@ -721,38 +725,6 @@
         render();
         renderRequests();
     }
-
-    function clearAllDays() {
-        if(confirm("CRITICAL WARNING: This will delete ALL schedule and request data for EVERY day. This cannot be undone.\n\nAre you sure you want to delete everything?")) {
-            // Loop backwards or collect keys first to avoid index issues while deleting
-            const keys = [];
-            for (let i=0; i<localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key.startsWith('shifts_') || key.startsWith('requests_')) {
-                    keys.push(key);
-                }
-            }
-            keys.forEach(k => localStorage.removeItem(k));
-            
-            // Reset current day
-            shifts = [];
-            requests = [];
-            undoStack = [];
-            redoStack = [];
-            updateUndoRedoButtons();
-            
-            render();
-            renderRequests();
-            alert("All data cleared.");
-        }
-    }
-
-    window.triggerPreview = function(idx) {
-        const req = requests[idx];
-        const li = document.getElementById('pendingList').children[idx];
-        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
-    };
 
     function toggleMenu() { const m = document.getElementById('menuDropdown'); m.style.display = m.style.display === 'flex' ? 'none' : 'flex'; }
     function openManageModal(type) {
@@ -1101,13 +1073,15 @@
             let workEnd = meta.end;
 
             if (shift.leaveRanges && shift.leaveRanges.length > 0) {
-                // Adjust Start
+                // Adjust Start: Find leave that starts at or before shift start and push workStart forward
                 let sortedStart = [...shift.leaveRanges].sort((a,b) => timeToOffset(a.start) - timeToOffset(b.start));
                 sortedStart.forEach(r => {
                     let ls = timeToOffset(r.start);
                     let le = timeToOffset(r.end);
                     let lDur = le - ls; if(lDur < 0) lDur += 1440;
                     let lEndLinear = ls + lDur;
+
+                    // If leave overlaps the current work start, push work start out
                     if (ls <= workStart + 1 && lEndLinear > workStart) {
                         workStart = lEndLinear;
                     }
@@ -1130,6 +1104,7 @@
                     let relEnd = lEndLinear - meta.start; if(relEnd < 0) relEnd += 1440;
                     let relWorkEnd = workEnd - meta.start; if(relWorkEnd < 0) relWorkEnd += 1440;
 
+                    // If leave ends at or beyond current work end, push work end back to leave start
                     if (relEnd >= relWorkEnd - 1) { 
                          workEnd = ls;
                     }
@@ -1562,6 +1537,20 @@
         }
     }
 
+    async function initiatePreDutyPaste() {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                processPreDuty(text);
+            } else {
+                openPreDutyModal();
+            }
+        } catch (err) {
+            console.warn('Clipboard read failed:', err);
+            openPreDutyModal();
+        }
+    }
+
     function openPreDutyModal() {
         document.getElementById('preDutyModal').style.display = 'flex';
         setTimeout(() => document.getElementById('preDutyInput').focus(), 50);
@@ -1766,7 +1755,7 @@
             }
         });
 
-        if(!manualContent) { 
+        if(!manualContent || typeof manualContent !== 'string') { 
             saveData(false); 
             closeModal('smartPasteModal'); 
             document.getElementById('smartPasteInput').value = ''; 
@@ -1779,7 +1768,7 @@
     }
     
     function processPreDuty(manualContent) {
-        const text = manualContent || document.getElementById('preDutyInput').value;
+        const text = (typeof manualContent === 'string') ? manualContent : document.getElementById('preDutyInput').value;
         const tokens = text.split(/[\s,]+/);
         pushHistory(); 
         tokens.forEach(token => {
@@ -1790,10 +1779,13 @@
                 shifts.forEach(s => { if (s.name.toUpperCase() === initials) { s.preDutyWx = true; } });
             }
         });
-        if(!manualContent) {
+        
+        if(typeof manualContent !== 'string') {
             saveData(false);
             closeModal('preDutyModal');
             document.getElementById('preDutyInput').value = '';
+        } else {
+            saveData(false);
         }
     }
 
@@ -1978,7 +1970,7 @@
             saveData(false); 
             render();
         }
-        if(!manualContent) {
+        if(!manualContent || typeof manualContent !== 'string') {
             closeModal('requestModal'); 
             document.getElementById('requestInput').value = '';
         }
@@ -2274,6 +2266,7 @@
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
             
+            // Re-added 20:00 Move Logic for manual edits
             if (h >= 20) {
                let s = shifts[idx];
                const newShift = {
