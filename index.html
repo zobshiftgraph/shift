@@ -694,6 +694,14 @@
         renderRequests();
     }
 
+    // FIX: Restored triggerPreview bridge function that connects the HTML click to the preview logic
+    window.triggerPreview = function(idx) {
+        const req = requests[idx];
+        const li = document.getElementById('pendingList').children[idx];
+        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
+    };
+
     // NEW FUNCTION: Commit Request
     function commitRequest(idx, event) {
         event.stopPropagation(); // Prevent toggling preview
@@ -740,6 +748,7 @@
             
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
+                     // Delete/Hide Shift
                      sArray.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
@@ -750,13 +759,15 @@
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
+                    // Only add if Time Provided
                     if (useStart && useEnd) {
                        let normStart = normalizeTime(useStart);
                        let normEnd = normalizeTime(useEnd);
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     if (isFullShiftLeave) { 
+                     // Leave (Partial or Full)
+                     if (isFullShiftLeave) {
                          sArray.splice(targetIdx, 1);
                      } else {
                          if(!s.leaveRanges) s.leaveRanges = [];
@@ -778,13 +789,6 @@
         render();
         renderRequests();
     }
-
-    window.triggerPreview = function(idx) {
-        const req = requests[idx];
-        const li = document.getElementById('pendingList').children[idx];
-        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
-    };
 
     function toggleMenu() { const m = document.getElementById('menuDropdown'); m.style.display = m.style.display === 'flex' ? 'none' : 'flex'; }
     function openManageModal(type) {
@@ -1560,18 +1564,6 @@
     
     function deleteShift(index) { if(confirm('Delete?')) { pushHistory(); shifts.splice(index, 1); saveData(false); } }
     
-    function clearData() {
-        if(confirm('Clear all data for this day?')) {
-            pushHistory(); 
-            shifts = [];
-            saveData(false);
-
-            requests = [];
-            saveRequests();
-            renderRequests();
-        }
-    }
-
     function openPasteModal() { 
         document.getElementById('pasteModal').style.display = 'flex';
         setTimeout(() => document.getElementById('pasteInput').focus(), 50);
@@ -1646,186 +1638,67 @@
         let exists = shifts.some(s => s.name === name && s.start === start);
         if (exists) return;
 
-        // 20:00 RULE Check
+        // 20:00 RULE IS RESTORED HERE 
         let h = parseInt(start.substring(0, 2));
         if (h >= 20 && !forceKeep) {
-            // Move to Previous Day
             let prevDate = getPreviousDate(currentDate);
             addShiftToStorage(prevDate, newShift);
         } else {
-            // Stay on Current Day
             shifts.push(newShift);
         }
     }
     
-    function processPaste(manualContent) {
-        let text = manualContent || document.getElementById('smartPasteInput').value; 
-        if(!text.trim()) text = document.getElementById('pasteInput').value; 
-
-        if (text.includes('===REQUESTS_START===')) {
-            const parts = text.split('===REQUESTS_START===');
-            processRequests(parts[1]); 
-            text = parts[0]; 
-        }
-        
-        text = text.replace('===SCHEDULE_START===', '').trim();
-        text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
-
-        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?([fF])?$/;
-        let lines = text.split(/\n/);
-        let currentBlock = null;
-        let blocks = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            let line = lines[i].trim();
-            let match = line.match(timeHeaderRegex);
-            if (match) {
-                if (currentBlock) blocks.push(currentBlock);
-                let t = match[1]; 
-                let h = parseInt(t.substring(0, 2)); 
-                let m = parseInt(t.substring(2, 4));
-                let dur = 8;
-                if (match[3]) dur = parseInt(match[3]); 
-                let eH = (h + dur) % 24;
-                currentBlock = {
-                    shift: { 
-                        start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
-                        end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
-                        isCic: false 
-                    },
-                    dataLines: []
-                };
-            } else if (currentBlock) {
-                currentBlock.dataLines.push(line);
-            }
-        }
-        if (currentBlock) blocks.push(currentBlock);
-
-        if (blocks.length === 0) {
-            alert("No valid shifts found in paste data.");
-            return;
-        }
-
+    function processSmartPaste(manualContent) {
+        let raw = typeof manualContent === 'string' ? manualContent : document.getElementById('smartPasteInput').value;
+        if (!raw.trim()) return;
         pushHistory(); 
 
-        blocks.forEach(blk => {
-            let sData = blk.shift;
-            let dLines = blk.dataLines; 
-            
-            if (dLines[0]) {
-                dLines[0].split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, ''); // Remove brackets
-                    if (!cleanName || cleanName === '-') return;
+        let processedRaw = raw;
 
-                    if (cleanName && cleanName !== "-") {
-                        let isCic = sData.isCic; let name = cleanName;
-                        if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
-                        
-                        let existing = shifts.find(x => x.name === name && !x._hidden);
-                        let isDoubleShift = false;
-                        if (existing) {
-                            let eEnd = timeToOffset(existing.end);
-                            let eStart = timeToOffset(existing.start);
-                            let dur = eEnd - eStart; if(dur < 0) dur += 1440;
-                            let actualEnd = eStart + dur;
-                            let nStart = timeToOffset(sData.start);
-                            let gap = nStart - actualEnd; 
-                            if (gap < 0) gap += 1440; 
-                            if (gap >= 600) isDoubleShift = true;
-                        }
-
-                        if (isDoubleShift) {
-                            addShift(name, sData.start, sData.end, 'standard', isCic, true, true);
-                        } else {
-                            let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                            if (idx !== -1) {
-                                 let oldH = parseInt(sData.start.substring(0,2));
-                                 if (oldH >= 20) {
-                                     let s = shifts[idx];
-                                     let up = {...s, start: sData.start, end: sData.end, isCic: (isCic || s.isCic)};
-                                     shifts.splice(idx, 1);
-                                     let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
-                                 } else {
-                                     shifts[idx].start = sData.start; 
-                                     shifts[idx].end = sData.end;
-                                     shifts[idx].isCic = (isCic || shifts[idx].isCic);
-                                 }
-                            } else {
-                                addShift(name, sData.start, sData.end, 'standard', isCic, true);
-                            }
-                        }
+        // Automatically set Date if found in clipboard
+        if (processedRaw.includes('===DATE===')) {
+            // Regex strictly targeting the ===DATE=== block
+            let dateMatch = processedRaw.match(/===DATE===\s*([\s\S]*?)(?====SCHEDULE_START===|===REQUESTS_START===|$)/);
+            if (dateMatch && dateMatch[1]) {
+                let d = new Date(dateMatch[1].trim());
+                if (!isNaN(d)) {
+                    let y = d.getFullYear();
+                    let m = String(d.getMonth() + 1).padStart(2, '0');
+                    let day = String(d.getDate()).padStart(2, '0');
+                    let formattedDate = `${y}-${m}-${day}`;
+                    
+                    const dateInput = document.getElementById('datePicker');
+                    if (dateInput.value !== formattedDate) {
+                         dateInput.value = formattedDate;
+                         currentDate = formattedDate;
+                         undoStack = []; redoStack = []; updateUndoRedoButtons();
+                         loadData(); 
+                         loadRequests();
+                         updateCurrentTime();
                     }
-                });
+                }
             }
+        }
 
-            if (dLines[1]) {
-                dLines[1].split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, '');
-                    if (!cleanName || cleanName === '-') return;
-
-                    if (cleanName && cleanName !== "-") {
-                        let name = cleanName.replace(/[()]/g, ''); 
-                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                        if (idx !== -1) {
-                             let oldH = parseInt(sData.start.substring(0,2));
-                             if (oldH >= 20) {
-                                 let s = shifts[idx];
-                                 let up = {...s, start: sData.start, end: sData.end, isCic: true};
-                                 shifts.splice(idx, 1);
-                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
-                             } else {
-                                 shifts[idx].start = sData.start; 
-                                 shifts[idx].end = sData.end;
-                                 shifts[idx].isCic = true;
-                             }
-                        } else {
-                            addShift(name, sData.start, sData.end, 'standard', true, false);
-                        }
-                    }
-                });
+        if (processedRaw.includes('===SCHEDULE_START===')) {
+            processPaste(processedRaw);
+        } 
+        else {
+            if (processedRaw.includes('AMAREA') || /8[a-zA-Z]{2}/.test(processedRaw)) {
+                processPreDuty(processedRaw);
+            } else if (processedRaw.includes('\t') && (processedRaw.includes('Approved') || processedRaw.includes('Pending'))) {
+                processRequests(processedRaw);
+            } else {
+                processPaste(processedRaw);
             }
-
-            if (dLines[2]) {
-                dLines[2].split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, '');
-                    if (!cleanName || cleanName === '-') return;
-
-                    if (cleanName && cleanName !== "-") {
-                        let idx = shifts.findIndex(x => x.name === cleanName && !x._hidden);
-                        if (idx !== -1) {
-                             let oldH = parseInt(sData.start.substring(0,2));
-                             if (oldH >= 20) {
-                                 let s = shifts[idx];
-                                 let up = {...s, start: sData.start, end: sData.end};
-                                 shifts.splice(idx, 1);
-                                 let pd = getPreviousDate(currentDate); addShiftToStorage(pd, up);
-                             } else {
-                                 shifts[idx].start = sData.start; 
-                                 shifts[idx].end = sData.end;
-                             }
-                        } else {
-                            addShift(cleanName, sData.start, sData.end, 'trainee', false, false);
-                        }
-                    }
-                });
-            }
-        });
-
-        if(!manualContent || typeof manualContent !== 'string') { 
-            saveData(false); 
-            closeModal('smartPasteModal'); 
-            document.getElementById('smartPasteInput').value = ''; 
-        } else { 
-            saveData(false); 
-            loadData(); 
-            closeModal('smartPasteModal'); 
+        }
+        
+        if (typeof manualContent !== 'string') {
+            closeModal('smartPasteModal');
             document.getElementById('smartPasteInput').value = '';
         }
     }
-    
+
     function processPreDuty(manualContent) {
         const text = (typeof manualContent === 'string') ? manualContent : document.getElementById('preDutyInput').value;
         const tokens = text.split(/[\s,]+/);
@@ -1848,13 +1721,180 @@
         }
     }
 
+    function processPaste(manualContent) {
+        let text = typeof manualContent === 'string' ? manualContent : document.getElementById('pasteInput').value; 
+        if(!text.trim()) return;
+
+        // Safely remove the Date block so it doesn't break parsing.
+        if (text.includes('===DATE===')) {
+             text = text.replace(/===DATE===[\s\S]*?(?====SCHEDULE_START===)/, '');
+        }
+
+        let requestsText = null;
+        if (text.includes('===REQUESTS_START===')) {
+            const parts = text.split('===REQUESTS_START===');
+            requestsText = parts[1]; 
+            text = parts[0]; 
+        }
+        
+        text = text.replace('===SCHEDULE_START===', '').trim();
+        text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
+
+        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?([fF])?$/;
+        let lines = text.split(/\n/);
+        let blocks = [];
+        let currentBlock = null;
+        let lineCounter = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            let match = line.match(timeHeaderRegex);
+            
+            if (match) {
+                if (currentBlock) blocks.push(currentBlock);
+                let t = match[1]; 
+                let h = parseInt(t.substring(0, 2)); 
+                let m = parseInt(t.substring(2, 4));
+                let dur = 8;
+                if (match[3]) dur = parseInt(match[3]); 
+                let eH = (h + dur) % 24;
+                
+                currentBlock = {
+                    shift: { 
+                        start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                        end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                        isCic: false 
+                    },
+                    dataLines: []
+                };
+                lineCounter = 0;
+            } else if (currentBlock) {
+                // Capture exactly 3 lines after a time header
+                if (lineCounter < 3) {
+                    currentBlock.dataLines.push(line);
+                    lineCounter++;
+                }
+            }
+        }
+        if (currentBlock) blocks.push(currentBlock);
+
+        if (blocks.length === 0) {
+            if (requestsText) {
+                processRequests(requestsText);
+                if(typeof manualContent !== 'string') {
+                    closeModal('pasteModal');
+                    document.getElementById('pasteInput').value = '';
+                }
+                return;
+            }
+            if (typeof manualContent !== 'string') alert("No valid shifts found in paste data.");
+            return;
+        }
+
+        if (typeof manualContent !== 'string') pushHistory(); 
+
+        blocks.forEach(blk => {
+            let sData = blk.shift;
+            let dLines = blk.dataLines; 
+            
+            // CPC Line
+            if (dLines[0] && dLines[0].trim() !== '') {
+                dLines[0].split(/[\s,\t]+/).forEach(n => {
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, ''); 
+                    if (!cleanName || cleanName === '-') return;
+
+                    let isCic = sData.isCic; let name = cleanName;
+                    if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
+                    
+                    let existing = shifts.find(x => x.name === name && !x._hidden);
+                    let isDoubleShift = false;
+                    if (existing) {
+                        let eEnd = timeToOffset(existing.end);
+                        let eStart = timeToOffset(existing.start);
+                        let dur = eEnd - eStart; if(dur < 0) dur += 1440;
+                        let actualEnd = eStart + dur;
+                        let nStart = timeToOffset(sData.start);
+                        let gap = nStart - actualEnd; 
+                        if (gap < 0) gap += 1440; 
+                        if (gap >= 600) isDoubleShift = true;
+                    }
+
+                    if (isDoubleShift) {
+                        addShift(name, sData.start, sData.end, 'standard', isCic, true, true);
+                    } else {
+                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                        if (idx !== -1) {
+                             // Note: we don't change existing night shifts here, we only update day shifts.
+                             shifts[idx].start = sData.start; 
+                             shifts[idx].end = sData.end;
+                             shifts[idx].isCic = (isCic || shifts[idx].isCic);
+                        } else {
+                            addShift(name, sData.start, sData.end, 'standard', isCic, true);
+                        }
+                    }
+                });
+            }
+
+            // SUP Line
+            if (dLines[1] && dLines[1].trim() !== '') {
+                dLines[1].split(/[\s,\t]+/).forEach(n => {
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, '');
+                    if (!cleanName || cleanName === '-') return;
+
+                    let name = cleanName.replace(/[()]/g, ''); 
+                    let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                    if (idx !== -1) {
+                         shifts[idx].start = sData.start; 
+                         shifts[idx].end = sData.end;
+                         shifts[idx].isCic = true;
+                    } else {
+                        addShift(name, sData.start, sData.end, 'standard', true, false);
+                    }
+                });
+            }
+
+            // DEV Line
+            if (dLines[2] && dLines[2].trim() !== '') {
+                dLines[2].split(/[\s,\t]+/).forEach(n => {
+                    let cleanName = n.replace(/[$]/g, '').trim();
+                    cleanName = cleanName.replace(/[\[\]]/g, '');
+                    if (!cleanName || cleanName === '-') return;
+
+                    let idx = shifts.findIndex(x => x.name === cleanName && !x._hidden);
+                    if (idx !== -1) {
+                         shifts[idx].start = sData.start; 
+                         shifts[idx].end = sData.end;
+                    } else {
+                        addShift(cleanName, sData.start, sData.end, 'trainee', false, false);
+                    }
+                });
+            }
+        });
+
+        // Save immediately before processing requests so shifts exist in memory
+        saveData(false);
+
+        // Process requests NOW that the shifts have been built
+        if (requestsText) {
+            processRequests(requestsText);
+        }
+
+        if(typeof manualContent !== 'string') { 
+            closeModal('pasteModal'); 
+            document.getElementById('pasteInput').value = ''; 
+        } else {
+            render();
+        }
+    }
+
     function processRequests(manualContent) {
-        const text = manualContent || document.getElementById('requestInput').value; 
+        const text = typeof manualContent === 'string' ? manualContent : document.getElementById('requestInput').value; 
         const lines = text.split(/\n/);
         let changesMade = false;
         let snapshotNeeded = false;
 
-        // 1. PARSE ALL INTO OBJECTS FIRST
         let parsedRows = [];
         lines.forEach(line => {
             if (!line.trim()) return;
@@ -1893,7 +1933,6 @@
             });
         });
 
-        // 2. DETECT APPROVED FULL SHIFT LEAVES
         const approvedFullLeaves = new Set();
         parsedRows.forEach(r => {
             if (r.isApproved && r.isLeave && r.cleanFrom.toLowerCase() === 'shift') {
@@ -1901,7 +1940,6 @@
             }
         });
 
-        // 3. PROCESS
         const addRangeUnique = (arr, newR) => {
             if (!arr.some(r => r.start === newR.start && r.end === newR.end)) {
                 arr.push(newR);
@@ -1912,6 +1950,7 @@
              const { cpc, cleanFrom, cleanTo, isTos, isLeave, isShiftChg, isApproved, isPendingOrDenied, status, typeRaw } = r;
 
              if (isApproved) {
+                // Cross Day Lookup - Finds the employee on the CURRENT or PREVIOUS day
                 let targetInfo = findEmployeeShiftCrossDay(cpc);
                 let sArray = targetInfo.sArray;
                 let idx = targetInfo.index;
@@ -1921,11 +1960,21 @@
                         if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
                         let p = parseShiftStringForPreview(r.to);
                         if (p) {
-                            sArray[idx].start = p.start;
-                            sArray[idx].end = p.end;
-                            sArray[idx].isCic = p.isCic;
-                            changesMade = true;
-                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
+                            let h = parseInt(p.start.substring(0,2));
+                            if (h >= 20 && !targetInfo.isDifferentDay) {
+                                // Shift moved to night shift, move to previous day
+                                const shiftToMove = { ...sArray[idx], start: p.start, end: p.end, isCic: p.isCic };
+                                sArray.splice(idx, 1); 
+                                let prevDate = getPreviousDate(currentDate);
+                                addShiftToStorage(prevDate, shiftToMove);
+                                changesMade = true;
+                            } else {
+                                sArray[idx].start = p.start;
+                                sArray[idx].end = p.end;
+                                sArray[idx].isCic = p.isCic;
+                                changesMade = true;
+                                if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
+                            }
                         }
                     }
                     return; 
@@ -1935,9 +1984,8 @@
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
                     if (isTos) {
-                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO
                         if (cleanFrom && !cleanTo) {
-                            // Do nothing. 
+                            // Do nothing. Single string extension for someone already on schedule
                         } else {
                             if(!sArray[idx].tosRanges) sArray[idx].tosRanges = [];
                             addRangeUnique(sArray[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
@@ -1958,11 +2006,9 @@
                         }
                     } 
                 } 
-                // Fix for missing shifts for Approved XTE/CTE/OT requests with single FROM column
                 else {
                     if (isTos) {
                         if (cleanFrom && !cleanTo) {
-                             // "Shift Style" request (0700-7) and user NOT on schedule -> Create Blue Shift
                              let p = parseShiftStringForPreview(cleanFrom);
                              if (p && p.start && p.end) {
                                   if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
@@ -1970,7 +2016,6 @@
                                   changesMade = true;
                              }
                         } else if (cleanFrom && cleanTo) {
-                             // "Time Style" request (05:00-15:00) and user NOT on schedule -> Create Blue Shift
                              const startT = normalizeTime(cleanFrom);
                              const endT = normalizeTime(cleanTo);
                              if (startT && endT) {
@@ -1986,7 +2031,6 @@
                  const isDenied = status.toLowerCase().includes('denied');
                  const isFullLeaveReq = isLeave && cleanFrom.toLowerCase() === 'shift';
 
-                 // THE FILTER: Skip denied full-shift leave if an approved one exists
                  if (isDenied && isFullLeaveReq && approvedFullLeaves.has(cpc)) {
                      return; 
                  }
@@ -1996,13 +2040,10 @@
                     if(cleanFrom) details = `(${cleanFrom} -> ${cleanTo})`; 
                 } 
                 else { 
-                    // Explicitly handle "Shift" keyword first
                     if (cleanFrom.toLowerCase() === 'shift') {
                         details = '(Shift)';
                     }
-                    // Handle single column format: 0700-7 (where TO is empty)
                     else if (!cleanTo && cleanFrom) {
-                        // Check if it is literally the word "Shift" first to be safe
                         if(cleanFrom.toLowerCase() === 'shift') {
                              details = '(Shift)';
                         } else {
@@ -2011,7 +2052,6 @@
                              else { details = `(${cleanFrom})`; }
                         }
                     }
-                    // Standard From-To
                     else {
                         details = `(${cleanFrom}-${cleanTo})`; 
                     }
@@ -2029,49 +2069,30 @@
             saveData(false); 
             render();
         }
-        if(!manualContent || typeof manualContent !== 'string') {
+        if(typeof manualContent !== 'string') {
             closeModal('requestModal'); 
             document.getElementById('requestInput').value = '';
         }
     }
 
-    function processSmartPaste(manualContent) {
-        const raw = manualContent || document.getElementById('smartPasteInput').value;
-        if (!raw.trim()) return;
-        pushHistory(); 
-        if (raw.includes('===SCHEDULE_START===')) {
-            const parts = raw.split(/===[A-Z_]+===/); 
-            if (parts[1]) processPaste(parts[1]);
-            if (parts[2]) processRequests(parts[2]);
-        } 
-        else {
-            if (raw.includes('AMAREA') || /8[a-zA-Z]{2}/.test(raw)) {
-                processPreDuty(raw);
-            } else if (raw.includes('\t') && (raw.includes('Approved') || raw.includes('Pending'))) {
-                processRequests(raw);
-            } else {
-                processPaste(raw);
-            }
-        }
-        saveData(false);
-        closeModal('smartPasteModal');
-        document.getElementById('smartPasteInput').value = '';
-    }
+    // THIS FUNCTION RESTORED TO ALLOW PREVIEWS
+    window.triggerPreview = function(idx) {
+        const req = requests[idx];
+        const li = document.getElementById('pendingList').children[idx];
+        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
+    };
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr, isTos) {
         let targetInfo = findEmployeeShiftCrossDay(cpc);
         let idx = targetInfo.index;
         
-        // Let's rely heavily on the local 'shifts' for visual preview, but pull the data if needed.
         if (targetInfo.isDifferentDay && idx !== -1 && !li.classList.contains('active-preview')) {
-             // For PREVIEW ONLY, we need to temporarily inject this person into the CURRENT day array
-             // to show the preview bar.
              let clone = JSON.parse(JSON.stringify(targetInfo.sArray[targetInfo.index]));
-             clone._isCrossDayPreview = true; // Mark it so we can delete it later
+             clone._isCrossDayPreview = true; 
              shifts.push(clone);
-             idx = shifts.length - 1; // It is now in the local array at the end
+             idx = shifts.length - 1; 
         } else {
-             // Re-evaluate index in the local array just in case it was already injected
              idx = shifts.findIndex(s => s.name === cpc);
         }
 
@@ -2089,14 +2110,11 @@
             li.classList.remove('active-preview'); 
             render();
         } else {
-            // Fix for missing TO time
             let useStart = fromStr;
             let useEnd = toStr;
             let p = null;
             
-            // Try parsing if To is missing or it looks like a combo string
             if (!useEnd || useEnd.trim() === '') {
-                 // Don't parse "Shift" as time
                  if(useStart.toLowerCase() !== 'shift') {
                      p = parseShiftStringForPreview(useStart);
                      if (p && p.end) {
@@ -2109,11 +2127,8 @@
             if (idx === -1) {
                 if (!useEnd) { alert('Cannot create new shift: No time provided.'); return; }
                 
-                // If we haven't parsed it yet (e.g. valid toStr existed), parse now for safety
-                if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd); // heuristic
-                // Re-verify p
+                if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd); 
                 if (!p) {
-                     // Try creating a combo string to parse
                      let combo = useStart;
                      if (useEnd) combo += '-' + useEnd;
                      p = parseShiftStringForPreview(combo);
@@ -2121,12 +2136,11 @@
 
                 if (!p) { alert('Cannot create new shift: Invalid time ' + useStart); return; }
                 
-                addShift(cpc, p.start, p.end, 'standard', false, false, true); // force stay on current day for preview
+                addShift(cpc, p.start, p.end, 'standard', false, false, true); 
                 idx = shifts.length - 1; 
                 shifts[idx]._isNewPreview = true;
                 previewBackups.set(cpc, null);
             } else { 
-                // Only backup if it's not a cross-day injection (cross-day is already a clone)
                 if(!shifts[idx]._isCrossDayPreview) {
                      previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); 
                 } else {
@@ -2149,11 +2163,8 @@
             } 
             else { 
                 if (isTos) {
-                    // Check if NEW shift 
                     if(s._isNewPreview) {
-                         // Keep it BLUE
                     } else {
-                        // Existing shift -> Add Green Bar
                         if (useStart && useEnd) {
                             if(!s.tosRanges) s.tosRanges = [];
                             let normStart = normalizeTime(useStart);
@@ -2165,7 +2176,6 @@
                     }
                 } else {
                     if (isFullLeave) { 
-                        // VISUALIZE FULL LEAVE PREVIEW (Grey Bar)
                         s.leaveRanges = [{start: s.start, end: s.end}]; 
                     } else { 
                         if(!s.leaveRanges) s.leaveRanges = [];
@@ -2204,10 +2214,8 @@
 
     function parseShiftStringForPreview(str) {
         if (!str) return null;
-        if (/^[tT]/.test(str)) str = str.substring(1);
-        let isCic = false;
-        if (/^[cC]/.test(str)) { isCic = true; str = str.substring(1); }
-        let clean = str.replace(/f/gi, '');
+        // Bulletproof clean: Strips out @, D, F, etc so time strings are pure numbers/colons
+        let clean = str.replace(/[^0-9:-]/g, '');
         let parts = clean.split('-');
         let start = normalizeTime(parts[0]);
         let end = '';
@@ -2219,14 +2227,12 @@
             } else { end = normalizeTime(p2); }
         } 
         else {
-            // Handle single time string e.g. "0800" -> 0800-1600 (8h default)
-            // But verify it looks like a time
             if (start.length === 5) {
                 let h = parseInt(start.substring(0,2)); let m = parseInt(start.substring(3,5));
                 let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
             }
         }
-        return { start, end, isCic };
+        return { start, end, isCic: false }; // Cic handled earlier in workflow if needed
     }
 
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
@@ -2245,7 +2251,6 @@
         document.getElementById('editLeaveRange').value = ''; 
         document.getElementById('previewLeave').innerHTML = '';
         if (s.leaveRanges) {
-            // Dedupe visual modal tags
             const seen = new Set();
             s.leaveRanges.forEach(r => {
                 const k = r.start + '-' + r.end;
@@ -2296,7 +2301,6 @@
         const containerId = type === 'leave' ? 'previewLeave' : 'previewTos';
         const container = document.getElementById(containerId);
         
-        // Prevent adding duplicate tag visually
         const existingTags = Array.from(container.children).map(c => c.getAttribute('data-range'));
         if (existingTags.includes(finalVal)) {
             if(clearInputBox) {
@@ -2356,20 +2360,21 @@
                 const parts = t.getAttribute('data-range').split('-');
                 tosRanges.push({start: parts[0], end: parts[1]});
             });
-            
-            // Re-added 20:00 Move Logic for manual edits
+
+            let s = shifts[idx];
+            const newShift = {
+                ...s,
+                start: startVal,
+                end: endVal,
+                notes: document.getElementById('editNotes').value,
+                leaveRanges, tosRanges,
+                isStaffing: document.getElementById('editStaffing').checked,
+                assignedTrainer: document.getElementById('editAssignedTrainer').value,
+                preDutyWx: document.getElementById('editPreDutyWx').checked
+            };
+
+            // 20:00 Move Logic for manual edits
             if (h >= 20) {
-               let s = shifts[idx];
-               const newShift = {
-                   ...s,
-                   start: startVal,
-                   end: endVal,
-                   notes: document.getElementById('editNotes').value,
-                   leaveRanges, tosRanges,
-                   isStaffing: document.getElementById('editStaffing').checked,
-                   assignedTrainer: document.getElementById('editAssignedTrainer').value,
-                   preDutyWx: document.getElementById('editPreDutyWx').checked
-               };
                shifts.splice(idx, 1);
                let prevDate = getPreviousDate(currentDate);
                addShiftToStorage(prevDate, newShift);
@@ -2378,16 +2383,7 @@
                return;
             }
 
-            shifts[idx] = {
-                ...shifts[idx], 
-                start: startVal, 
-                end: endVal,
-                notes: document.getElementById('editNotes').value, 
-                leaveRanges, tosRanges,
-                isStaffing: document.getElementById('editStaffing').checked, 
-                assignedTrainer: document.getElementById('editAssignedTrainer').value,
-                preDutyWx: document.getElementById('editPreDutyWx').checked
-            };
+            shifts[idx] = newShift;
             saveData(false); closeModal('editModal');
         }
     }
