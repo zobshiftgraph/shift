@@ -583,6 +583,66 @@
         return `${ny}-${nm}-${nd}`;
     }
 
+    function clearData() {
+        if(confirm('Clear all data for this day?')) {
+            pushHistory(); 
+            shifts = [];
+            saveData(false);
+
+            requests = [];
+            saveRequests();
+            renderRequests();
+        }
+    }
+
+    function clearAllDays() {
+        if(confirm("CRITICAL WARNING: This will delete ALL schedule and request data for EVERY day. This cannot be undone.\n\nAre you sure you want to delete everything?")) {
+            const keys = [];
+            for (let i=0; i<localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.startsWith('shifts_') || key.startsWith('requests_'))) {
+                    keys.push(key);
+                }
+            }
+            keys.forEach(k => localStorage.removeItem(k));
+            
+            shifts = [];
+            requests = [];
+            undoStack = [];
+            redoStack = [];
+            updateUndoRedoButtons();
+            
+            render();
+            renderRequests();
+            alert("All data cleared.");
+            document.getElementById('menuDropdown').style.display = 'none'; 
+        }
+    }
+
+    // CROSS DAY HELPER
+    function findEmployeeShiftCrossDay(cpc) {
+        let idx = shifts.findIndex(s => s.name === cpc && !s._hidden);
+        if (idx !== -1) return { found: true, isDifferentDay: false, sArray: shifts, index: idx, dateStr: currentDate };
+        
+        let prevDateStr = getPreviousDate(currentDate);
+        let storedP = localStorage.getItem('shifts_' + prevDateStr);
+        if (storedP) {
+            let pShifts = JSON.parse(storedP);
+            let pIdx = pShifts.findIndex(s => s.name === cpc && !s._hidden);
+            if (pIdx !== -1) return { found: true, isDifferentDay: true, sArray: pShifts, index: pIdx, dateStr: prevDateStr };
+        }
+        
+        let nextDateStr = getNextDate(currentDate);
+        let storedN = localStorage.getItem('shifts_' + nextDateStr);
+        if (storedN) {
+            let nShifts = JSON.parse(storedN);
+            let nIdx = nShifts.findIndex(s => s.name === cpc && !s._hidden);
+            if (nIdx !== -1) return { found: true, isDifferentDay: true, sArray: nShifts, index: nIdx, dateStr: nextDateStr };
+        }
+        
+        return { found: false, isDifferentDay: false, sArray: shifts, index: -1, dateStr: currentDate };
+    }
+
     // --- SAVE/LOAD REQUESTS ---
     function loadRequests() {
         const stored = localStorage.getItem('requests_' + currentDate);
@@ -638,54 +698,49 @@
     function commitRequest(idx, event) {
         event.stopPropagation(); // Prevent toggling preview
         
-        // 1. Get the request
         const req = requests[idx];
-        
-        // 2. Push history state before modifying
         pushHistory();
 
-        // 3. Apply the logic (similar to toggleRequestPreview but permanent)
-        let targetIdx = shifts.findIndex(s => s.name === req.cpc);
+        let targetInfo = findEmployeeShiftCrossDay(req.cpc);
+        let sArray = targetInfo.sArray;
+        let targetIdx = targetInfo.index;
         
         let useStart = req.cleanFrom;
         let useEnd = req.cleanTo;
         let p = null;
         if (!useEnd || useEnd.trim() === '') {
-             // Don't try parsing "Shift" as a time string
              if (useStart.toLowerCase() !== 'shift') {
                  p = parseShiftStringForPreview(useStart);
                  if (p && p.end) { useStart = p.start; useEnd = p.end; }
              }
         }
         
-        // If it's a full leave for "shift", get the existing shift times
-        let isFullShiftLeave = !req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift';
+        let isFullShiftLeave = !req.isShiftChg && (req.cleanFrom.toLowerCase() === 'shift' || (req.cleanFrom === 'Shift' && !req.cleanTo));
         if (isFullShiftLeave && targetIdx !== -1) {
-            useStart = shifts[targetIdx].start;
-            useEnd = shifts[targetIdx].end;
+            useStart = sArray[targetIdx].start;
+            useEnd = sArray[targetIdx].end;
         }
 
         if (targetIdx === -1) {
-             // Create New Shift
              if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd);
              if (!p) {
                  let combo = useStart; if (useEnd) combo += '-' + useEnd;
                  p = parseShiftStringForPreview(combo);
              }
              if (p) {
-                 addShift(req.cpc, p.start, p.end, 'standard', false);
+                 // Force keep so it displays where pasted, unless standard rules apply
+                 addShift(req.cpc, p.start, p.end, 'standard', false, true, true);
              } else {
                  alert("Could not parse time for commit: " + useStart);
                  return;
              }
         } else {
             // Edit Existing Shift
-            let s = shifts[targetIdx];
+            let s = sArray[targetIdx];
             
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
-                     // Delete/Hide Shift
-                     shifts.splice(targetIdx, 1);
+                     sArray.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
                      if (p2) { s.start = p2.start; s.end = p2.end; s.isCic = p2.isCic; }
@@ -695,17 +750,14 @@
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
-                    // Only add if Time Provided
                     if (useStart && useEnd) {
                        let normStart = normalizeTime(useStart);
                        let normEnd = normalizeTime(useEnd);
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     // Leave (Partial or Full)
-                     if (isFullShiftLeave) {
-                         // Full Shift Leave -> DELETE SHIFT
-                         shifts.splice(targetIdx, 1);
+                     if (isFullShiftLeave) { 
+                         sArray.splice(targetIdx, 1);
                      } else {
                          if(!s.leaveRanges) s.leaveRanges = [];
                          let normStart = normalizeTime(useStart);
@@ -716,15 +768,23 @@
             }
         }
 
-        // 4. Remove request from list
-        requests.splice(idx, 1);
+        if (targetInfo.isDifferentDay) {
+            localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
+        }
 
-        // 5. Save & Render
+        requests.splice(idx, 1);
         saveData(false);
         saveRequests();
         render();
         renderRequests();
     }
+
+    window.triggerPreview = function(idx) {
+        const req = requests[idx];
+        const li = document.getElementById('pendingList').children[idx];
+        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
+        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
+    };
 
     function toggleMenu() { const m = document.getElementById('menuDropdown'); m.style.display = m.style.display === 'flex' ? 'none' : 'flex'; }
     function openManageModal(type) {
@@ -1104,7 +1164,6 @@
                     let relEnd = lEndLinear - meta.start; if(relEnd < 0) relEnd += 1440;
                     let relWorkEnd = workEnd - meta.start; if(relWorkEnd < 0) relWorkEnd += 1440;
 
-                    // If leave ends at or beyond current work end, push work end back to leave start
                     if (relEnd >= relWorkEnd - 1) { 
                          workEnd = ls;
                     }
@@ -1853,53 +1912,53 @@
              const { cpc, cleanFrom, cleanTo, isTos, isLeave, isShiftChg, isApproved, isPendingOrDenied, status, typeRaw } = r;
 
              if (isApproved) {
-                let updateTargetIdx = -1;
+                let targetInfo = findEmployeeShiftCrossDay(cpc);
+                let sArray = targetInfo.sArray;
+                let idx = targetInfo.index;
+
                 if (isShiftChg) {
-                    const idx = shifts.findIndex(s => s.name === cpc);
                     if (idx !== -1) {
                         if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; }
                         let p = parseShiftStringForPreview(r.to);
                         if (p) {
-                            let h = parseInt(p.start.substring(0,2));
-                            if (h >= 20) {
-                                const shiftToMove = { ...shifts[idx], start: p.start, end: p.end, isCic: p.isCic };
-                                shifts.splice(idx, 1); 
-                                let prevDate = getPreviousDate(currentDate);
-                                addShiftToStorage(prevDate, shiftToMove);
-                                changesMade = true;
-                            } else {
-                                shifts[idx].start = p.start;
-                                shifts[idx].end = p.end;
-                                shifts[idx].isCic = p.isCic;
-                                changesMade = true;
-                            }
+                            sArray[idx].start = p.start;
+                            sArray[idx].end = p.end;
+                            sArray[idx].isCic = p.isCic;
+                            changesMade = true;
+                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
                         }
                     }
                     return; 
                 }
 
-                const idx = shifts.findIndex(s => s.name === cpc);
                 if (idx !== -1) {
                     if (!snapshotNeeded) { pushHistory(); snapshotNeeded = true; } 
                     
                     if (isTos) {
-                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO AND USER ON SCHEDULE
+                        // IGNORE IF ONLY FROM IS PRESENT AND NO TO
                         if (cleanFrom && !cleanTo) {
                             // Do nothing. 
                         } else {
-                            if(!shifts[idx].tosRanges) shifts[idx].tosRanges = [];
-                            addRangeUnique(shifts[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
+                            if(!sArray[idx].tosRanges) sArray[idx].tosRanges = [];
+                            addRangeUnique(sArray[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                             changesMade = true;
+                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
                         }
                     }
                     else if (isLeave) {
                         if (cleanFrom.toLowerCase() !== 'shift') {
-                            if(!shifts[idx].leaveRanges) shifts[idx].leaveRanges = [];
-                            addRangeUnique(shifts[idx].leaveRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
+                            if(!sArray[idx].leaveRanges) sArray[idx].leaveRanges = [];
+                            addRangeUnique(sArray[idx].leaveRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                             changesMade = true;
+                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
+                        } else {
+                            sArray.splice(idx, 1);
+                            changesMade = true;
+                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
                         }
                     } 
                 } 
+                // Fix for missing shifts for Approved XTE/CTE/OT requests with single FROM column
                 else {
                     if (isTos) {
                         if (cleanFrom && !cleanTo) {
@@ -2000,7 +2059,22 @@
     }
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr, isTos) {
-        let idx = shifts.findIndex(s => s.name === cpc);
+        let targetInfo = findEmployeeShiftCrossDay(cpc);
+        let idx = targetInfo.index;
+        
+        // Let's rely heavily on the local 'shifts' for visual preview, but pull the data if needed.
+        if (targetInfo.isDifferentDay && idx !== -1 && !li.classList.contains('active-preview')) {
+             // For PREVIEW ONLY, we need to temporarily inject this person into the CURRENT day array
+             // to show the preview bar.
+             let clone = JSON.parse(JSON.stringify(targetInfo.sArray[targetInfo.index]));
+             clone._isCrossDayPreview = true; // Mark it so we can delete it later
+             shifts.push(clone);
+             idx = shifts.length - 1; // It is now in the local array at the end
+        } else {
+             // Re-evaluate index in the local array just in case it was already injected
+             idx = shifts.findIndex(s => s.name === cpc);
+        }
+
         if (previewTimers.has(cpc)) { clearTimeout(previewTimers.get(cpc)); previewTimers.delete(cpc); }
 
         if (li.classList.contains('active-preview')) {
@@ -2009,7 +2083,9 @@
                 else { shifts.push(previewBackups.get(cpc)); }
                 previewBackups.delete(cpc); 
             } 
-            else if (idx !== -1 && shifts[idx]._isNewPreview) { shifts.splice(idx, 1); }
+            else if (idx !== -1 && (shifts[idx]._isNewPreview || shifts[idx]._isCrossDayPreview)) { 
+                shifts.splice(idx, 1); 
+            }
             li.classList.remove('active-preview'); 
             render();
         } else {
@@ -2045,11 +2121,17 @@
 
                 if (!p) { alert('Cannot create new shift: Invalid time ' + useStart); return; }
                 
-                addShift(cpc, p.start, p.end, 'standard', false);
+                addShift(cpc, p.start, p.end, 'standard', false, false, true); // force stay on current day for preview
                 idx = shifts.length - 1; 
                 shifts[idx]._isNewPreview = true;
+                previewBackups.set(cpc, null);
             } else { 
-                previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); 
+                // Only backup if it's not a cross-day injection (cross-day is already a clone)
+                if(!shifts[idx]._isCrossDayPreview) {
+                     previewBackups.set(cpc, JSON.parse(JSON.stringify(shifts[idx]))); 
+                } else {
+                     previewBackups.set(cpc, null);
+                }
             }
             
             li.classList.add('active-preview'); 
@@ -2067,13 +2149,11 @@
             } 
             else { 
                 if (isTos) {
-                    // Check if NEW shift or EXISTING
+                    // Check if NEW shift 
                     if(s._isNewPreview) {
-                         // New shift created -> Keep it BLUE (don't add TOS range)
-                         // Shift already has start/end set by addShift above.
+                         // Keep it BLUE
                     } else {
-                        // Existing shift -> Add Green Bar if Time provided.
-                        // If no "TO" time provided, IGNORE (per updated requirement)
+                        // Existing shift -> Add Green Bar
                         if (useStart && useEnd) {
                             if(!s.tosRanges) s.tosRanges = [];
                             let normStart = normalizeTime(useStart);
@@ -2099,10 +2179,21 @@
             }
             render(); 
             const timerId = setTimeout(() => { 
-                const current = shifts.find(item => item.name === cpc);
-                if(current) {
-                    delete current._previewing;
-                    if(isFullLeave) current._hidden = true; 
+                const cIdx = shifts.findIndex(item => item.name === cpc);
+                if(cIdx !== -1) {
+                    if (shifts[cIdx]._isCrossDayPreview || shifts[cIdx]._isNewPreview) {
+                        shifts.splice(cIdx, 1);
+                    } else {
+                        if (previewBackups.has(cpc) && previewBackups.get(cpc)) {
+                            shifts[cIdx] = previewBackups.get(cpc);
+                        } else if (isFullLeave) {
+                            shifts[cIdx]._hidden = true; 
+                        }
+                    }
+                    if(shifts[cIdx]) delete shifts[cIdx]._previewing;
+                    
+                    li.classList.remove('active-preview'); 
+                    previewBackups.delete(cpc);
                     render();
                 }
                 previewTimers.delete(cpc); 
@@ -2299,121 +2390,6 @@
             };
             saveData(false); closeModal('editModal');
         }
-    }
-
-    function clearAllDays() {
-        if(confirm("CRITICAL WARNING: This will delete ALL schedule and request data for EVERY day. This cannot be undone.\n\nAre you sure you want to delete everything?")) {
-            const keys = [];
-            for (let i=0; i<localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key.startsWith('shifts_') || key.startsWith('requests_')) {
-                    keys.push(key);
-                }
-            }
-            keys.forEach(k => localStorage.removeItem(k));
-            
-            shifts = [];
-            requests = [];
-            undoStack = [];
-            redoStack = [];
-            updateUndoRedoButtons();
-            
-            render();
-            renderRequests();
-            alert("All data cleared.");
-        }
-    }
-
-    // NEW FUNCTION: Commit Request
-    function commitRequest(idx, event) {
-        event.stopPropagation(); // Prevent toggling preview
-        
-        // 1. Get the request
-        const req = requests[idx];
-        
-        // 2. Push history state before modifying
-        pushHistory();
-
-        // 3. Apply the logic (similar to toggleRequestPreview but permanent)
-        let targetIdx = shifts.findIndex(s => s.name === req.cpc);
-        
-        let useStart = req.cleanFrom;
-        let useEnd = req.cleanTo;
-        let p = null;
-        if (!useEnd || useEnd.trim() === '') {
-             // Don't try parsing "Shift" as a time string
-             if (useStart.toLowerCase() !== 'shift') {
-                 p = parseShiftStringForPreview(useStart);
-                 if (p && p.end) { useStart = p.start; useEnd = p.end; }
-             }
-        }
-        
-        // If it's a full leave for "shift", get the existing shift times
-        let isFullShiftLeave = !req.isShiftChg && req.cleanFrom.toLowerCase() === 'shift';
-        if (isFullShiftLeave && targetIdx !== -1) {
-            useStart = shifts[targetIdx].start;
-            useEnd = shifts[targetIdx].end;
-        }
-
-        if (targetIdx === -1) {
-             // Create New Shift
-             if (!p) p = parseShiftStringForPreview(useStart + '-' + useEnd);
-             if (!p) {
-                 let combo = useStart; if (useEnd) combo += '-' + useEnd;
-                 p = parseShiftStringForPreview(combo);
-             }
-             if (p) {
-                 addShift(req.cpc, p.start, p.end, 'standard', false);
-             } else {
-                 alert("Could not parse time for commit: " + useStart);
-                 return;
-             }
-        } else {
-            // Edit Existing Shift
-            let s = shifts[targetIdx];
-            
-            if (req.isShiftChg) {
-                 if (req.cleanTo.toUpperCase() === 'X') {
-                     // Delete/Hide Shift
-                     shifts.splice(targetIdx, 1);
-                 } else {
-                     let p2 = parseShiftStringForPreview(req.cleanTo);
-                     if (p2) { s.start = p2.start; s.end = p2.end; s.isCic = p2.isCic; }
-                 }
-            } else {
-                const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-                
-                if (isTos) {
-                    if(!s.tosRanges) s.tosRanges = [];
-                    // Only add if Time Provided
-                    if (useStart && useEnd) {
-                       let normStart = normalizeTime(useStart);
-                       let normEnd = normalizeTime(useEnd);
-                       if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
-                    }
-                } else {
-                     // Leave (Partial or Full)
-                     if (isFullShiftLeave) {
-                         // Full Shift Leave -> DELETE SHIFT
-                         shifts.splice(targetIdx, 1);
-                     } else {
-                         if(!s.leaveRanges) s.leaveRanges = [];
-                         let normStart = normalizeTime(useStart);
-                         let normEnd = normalizeTime(useEnd);
-                         if(normStart && normEnd) s.leaveRanges.push({start: normStart, end: normEnd});
-                     }
-                }
-            }
-        }
-
-        // 4. Remove request from list
-        requests.splice(idx, 1);
-
-        // 5. Save & Render
-        saveData(false);
-        saveRequests();
-        render();
-        renderRequests();
     }
 </script>
 </body>
