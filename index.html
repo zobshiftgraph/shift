@@ -728,6 +728,7 @@
                  p = parseShiftStringForPreview(combo);
              }
              if (p) {
+                 // Force keep so it displays where pasted, unless standard rules apply
                  addShift(req.cpc, p.start, p.end, 'standard', false, true, true);
              } else {
                  alert("Could not parse time for commit: " + useStart);
@@ -738,6 +739,7 @@
             
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
+                     // Delete/Hide Shift
                      sArray.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
@@ -748,12 +750,14 @@
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
+                    // Only add if Time Provided
                     if (useStart && useEnd) {
                        let normStart = normalizeTime(useStart);
                        let normEnd = normalizeTime(useEnd);
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
+                     // Leave (Partial or Full)
                      if (isFullShiftLeave) { 
                          sArray.splice(targetIdx, 1);
                      } else {
@@ -861,31 +865,41 @@
     function updateCurrentTime() {
         const now = new Date(); const line = document.getElementById('currentTimeLine');
         const pickerValue = document.getElementById('datePicker').value; if (!pickerValue) return;
-        const [pYear, pMonth, pDay] = pickerValue.split('-').map(Number);
-        const startBoundary = new Date(pYear, pMonth - 1, pDay, START_HOUR, 0, 0, 0);
-        const endBoundary = new Date(startBoundary); endBoundary.setDate(endBoundary.getDate() + 1);
         
-        // Update Time Line
-        if (now >= startBoundary && now < endBoundary) {
-            const pct = ((now - startBoundary) / (endBoundary - startBoundary)) * 100;
+        let currentLogicalDate = new Date();
+        if (currentLogicalDate.getHours() < START_HOUR) {
+            currentLogicalDate.setDate(currentLogicalDate.getDate() - 1);
+        }
+        let clYear = currentLogicalDate.getFullYear();
+        let clMonth = String(currentLogicalDate.getMonth() + 1).padStart(2, '0');
+        let clDay = String(currentLogicalDate.getDate()).padStart(2, '0');
+        let logicalDateString = `${clYear}-${clMonth}-${clDay}`;
+
+        if (pickerValue === logicalDateString) {
+            let h = now.getHours();
+            let m = now.getMinutes();
+            let relMins = (h * 60) + m - (START_HOUR * 60);
+            if (relMins < 0) relMins += (24 * 60);
+            
+            const pct = (relMins / TOTAL_MINUTES) * 100;
             line.style.left = pct + '%'; 
             line.style.display = 'block';
-            const h = String(now.getHours()).padStart(2, '0');
-            const m = String(now.getMinutes()).padStart(2, '0');
-            line.setAttribute('data-time', `${h}:${m}`);
+            line.setAttribute('data-time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
         } else { 
             line.style.display = 'none'; 
         }
         
-        // Also update Employee Status Colors
-        updateEmployeeStatuses(now, startBoundary, endBoundary);
+        updateEmployeeStatuses(now, pickerValue, logicalDateString);
     }
 
-    function updateEmployeeStatuses(now, startBoundary, endBoundary) {
+    function updateEmployeeStatuses(now, pickerValue, logicalDateString) {
         let currentOffset = -1;
-        if (now >= startBoundary && now < endBoundary) {
-            currentOffset = (now - startBoundary) / 1000 / 60; 
-        } else if (now > endBoundary) {
+        if (pickerValue === logicalDateString) {
+            let h = now.getHours();
+            let m = now.getMinutes();
+            currentOffset = (h * 60) + m - (START_HOUR * 60);
+            if (currentOffset < 0) currentOffset += (24 * 60);
+        } else if (pickerValue < logicalDateString) {
             currentOffset = 9999; 
         } else {
             currentOffset = -1; 
@@ -959,6 +973,7 @@
                 const ls = timeToOffset(r.start); 
                 const le = timeToOffset(r.end);
                 let diff = endOffset - le; if (diff < -1000) diff += 1440; 
+                // If this leave block ends within 30 mins of shift end, it truncates the shift visual
                 if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
             });
         }
@@ -1088,6 +1103,7 @@
         graphBody.innerHTML = ''; listBody.innerHTML = '';
         const displayOrder = getSortedIndices();
         
+        // Prepare adjacent day data for rest period checks
         let prevDate = getPreviousDate(currentDate);
         let nextDate = getNextDate(currentDate);
         let prevShiftsData = [];
@@ -1516,44 +1532,6 @@
 
     function openRequestModal() { document.getElementById('requestModal').style.display = 'flex'; document.getElementById('requestInput').focus(); }
     
-    function getPreviousDate(dateStr) {
-        let [y, m, d] = dateStr.split('-').map(Number);
-        let date = new Date(y, m - 1, d);
-        date.setDate(date.getDate() - 1);
-        let ny = date.getFullYear();
-        let nm = String(date.getMonth() + 1).padStart(2, '0');
-        let nd = String(date.getDate()).padStart(2, '0');
-        return `${ny}-${nm}-${nd}`;
-    }
-
-    function addShiftToStorage(dateStr, newShift) {
-        let key = 'shifts_' + dateStr;
-        let stored = localStorage.getItem(key);
-        let dayShifts = stored ? JSON.parse(stored) : [];
-        let exists = dayShifts.some(s => s.name === newShift.name && s.start === newShift.start);
-        if (!exists) {
-            dayShifts.push(newShift);
-            localStorage.setItem(key, JSON.stringify(dayShifts));
-        }
-    }
-
-    function addShift(name, start, end, type, isCic, isStaffing = false, forceKeep = false) {
-        if (!name) return;
-        
-        let newShift = { name, start, end, type, isCic, isStaffing, notes: '', leaveRanges: [], tosRanges: [], preDutyWx: false };
-
-        let exists = shifts.some(s => s.name === name && s.start === start);
-        if (exists) return;
-
-        let h = parseInt(start.substring(0, 2));
-        if (h >= 20 && !forceKeep) {
-            let prevDate = getPreviousDate(currentDate);
-            addShiftToStorage(prevDate, newShift);
-        } else {
-            shifts.push(newShift);
-        }
-    }
-    
     function processSmartPaste(manualContent) {
         let raw = typeof manualContent === 'string' ? manualContent : document.getElementById('smartPasteInput').value;
         if (!raw.trim()) return;
@@ -1718,7 +1696,7 @@
                     }
 
                     if (isDoubleShift) {
-                        addShift(name, sData.start, sData.end, 'standard', isCic, true);
+                        addShift(name, sData.start, sData.end, 'standard', isCic, true, true);
                     } else {
                         let idx = shifts.findIndex(x => x.name === name && !x._hidden);
                         if (idx !== -1) {
