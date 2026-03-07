@@ -619,7 +619,7 @@
         }
     }
 
-    // CROSS DAY HELPER
+    // CROSS DAY HELPER - STRICTLY RESTRICTED TO 20:00+ SHIFTS ON PREVIOUS DAY
     function findEmployeeShiftCrossDay(cpc) {
         let idx = shifts.findIndex(s => s.name === cpc && !s._hidden);
         if (idx !== -1) return { found: true, isDifferentDay: false, sArray: shifts, index: idx, dateStr: currentDate };
@@ -628,16 +628,9 @@
         let storedP = localStorage.getItem('shifts_' + prevDateStr);
         if (storedP) {
             let pShifts = JSON.parse(storedP);
-            let pIdx = pShifts.findIndex(s => s.name === cpc && !s._hidden);
+            // ONLY match if it is a night shift (starts 20:00 or later)
+            let pIdx = pShifts.findIndex(s => s.name === cpc && !s._hidden && parseInt(s.start.substring(0,2)) >= 20);
             if (pIdx !== -1) return { found: true, isDifferentDay: true, sArray: pShifts, index: pIdx, dateStr: prevDateStr };
-        }
-        
-        let nextDateStr = getNextDate(currentDate);
-        let storedN = localStorage.getItem('shifts_' + nextDateStr);
-        if (storedN) {
-            let nShifts = JSON.parse(storedN);
-            let nIdx = nShifts.findIndex(s => s.name === cpc && !s._hidden);
-            if (nIdx !== -1) return { found: true, isDifferentDay: true, sArray: nShifts, index: nIdx, dateStr: nextDateStr };
         }
         
         return { found: false, isDifferentDay: false, sArray: shifts, index: -1, dateStr: currentDate };
@@ -694,7 +687,6 @@
         renderRequests();
     }
 
-    // FIX: Restored triggerPreview bridge function that connects the HTML click to the preview logic
     window.triggerPreview = function(idx) {
         const req = requests[idx];
         const li = document.getElementById('pendingList').children[idx];
@@ -736,19 +728,16 @@
                  p = parseShiftStringForPreview(combo);
              }
              if (p) {
-                 // Force keep so it displays where pasted, unless standard rules apply
                  addShift(req.cpc, p.start, p.end, 'standard', false, true, true);
              } else {
                  alert("Could not parse time for commit: " + useStart);
                  return;
              }
         } else {
-            // Edit Existing Shift
             let s = sArray[targetIdx];
             
             if (req.isShiftChg) {
                  if (req.cleanTo.toUpperCase() === 'X') {
-                     // Delete/Hide Shift
                      sArray.splice(targetIdx, 1);
                  } else {
                      let p2 = parseShiftStringForPreview(req.cleanTo);
@@ -759,15 +748,13 @@
                 
                 if (isTos) {
                     if(!s.tosRanges) s.tosRanges = [];
-                    // Only add if Time Provided
                     if (useStart && useEnd) {
                        let normStart = normalizeTime(useStart);
                        let normEnd = normalizeTime(useEnd);
                        if(normStart && normEnd) s.tosRanges.push({start: normStart, end: normEnd});
                     }
                 } else {
-                     // Leave (Partial or Full)
-                     if (isFullShiftLeave) {
+                     if (isFullShiftLeave) { 
                          sArray.splice(targetIdx, 1);
                      } else {
                          if(!s.leaveRanges) s.leaveRanges = [];
@@ -972,7 +959,6 @@
                 const ls = timeToOffset(r.start); 
                 const le = timeToOffset(r.end);
                 let diff = endOffset - le; if (diff < -1000) diff += 1440; 
-                // If this leave block ends within 30 mins of shift end, it truncates the shift visual
                 if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
             });
         }
@@ -995,15 +981,12 @@
         shifts.forEach((s, idx) => { if(s.assignedTrainer) { if(!traineesByTrainer[s.assignedTrainer]) traineesByTrainer[s.assignedTrainer] = []; traineesByTrainer[s.assignedTrainer].push(idx); } });
         let indices = shifts.map((_, i) => i);
         indices.sort((a, b) => {
-            // Helper to determine the "Effective Sort Start Time"
             const getSortStart = (s) => {
                 if (s._previewing && previewBackups.has(s.name)) {
                     return timeToOffset(previewBackups.get(s.name).start);
                 }
                 return timeToOffset(s.start);
             };
-            
-             // Helper for "Effective Sort End Time"
             const getSortEnd = (s) => {
                 if (s._previewing && previewBackups.has(s.name)) {
                     return timeToOffset(previewBackups.get(s.name).end);
@@ -1033,7 +1016,6 @@
             sorted.push(idx); added.add(idx);
 
             if (traineesByTrainer[s.name]) {
-                // Sort the trainees by time
                 let children = traineesByTrainer[s.name];
                 children.sort((a, b) => {
                     const tStartA = timeToOffset(shifts[a].start);
@@ -1054,20 +1036,17 @@
         return sorted;
     }
 
-    // --- ADDED: SHIFT STATS LOGIC ---
     function updateShiftStats() {
         let dayCount = 0;
         let eveCount = 0;
         
         let [y, m, d] = currentDate.split('-').map(Number);
         let currentDayObj = new Date(y, m - 1, d);
-        let dayOfWeek = currentDayObj.getDay(); // 0=Sun, 6=Sat
+        let dayOfWeek = currentDayObj.getDay(); 
 
-        // DOM Elements
         const dayEl = document.querySelector('.stat-box.day');
         const eveEl = document.querySelector('.stat-box.eve');
 
-        // Reset classes
         dayEl.className = 'stat-box day';
         eveEl.className = 'stat-box eve';
 
@@ -1078,12 +1057,10 @@
             if (s.isStaffing) isTrainee = false; 
             if (isTrainee) return;
 
-            // Exclude 20:00+ starts if any slipped in
             let hStart = parseInt(s.start.substring(0,2));
             if (hStart >= 20) return;
 
             let meta = calculateShiftMeta(s);
-            // 19:00 relative to 04:00 is (19-4)*60 = 900 minutes.
             if (meta.end >= 900) {
                 eveCount++;
             } else {
@@ -1091,15 +1068,13 @@
             }
         });
 
-        // Day Logic (Sun-Sat): <= 6 Red, == 7 Yellow
         if (dayCount <= 6) dayEl.classList.add('stat-danger');
         else if (dayCount === 7) dayEl.classList.add('stat-warning');
 
-        // Eve Logic
-        if (dayOfWeek === 6) { // Saturday: <= 6 Red, == 7 Yellow
+        if (dayOfWeek === 6) { 
             if (eveCount <= 6) eveEl.classList.add('stat-danger');
             else if (eveCount === 7) eveEl.classList.add('stat-warning');
-        } else { // Sun-Fri: <= 7 Red, == 8 Yellow
+        } else { 
             if (eveCount <= 7) eveEl.classList.add('stat-danger');
             else if (eveCount === 8) eveEl.classList.add('stat-warning');
         }
@@ -1113,7 +1088,6 @@
         graphBody.innerHTML = ''; listBody.innerHTML = '';
         const displayOrder = getSortedIndices();
         
-        // Prepare adjacent day data for rest period checks
         let prevDate = getPreviousDate(currentDate);
         let nextDate = getNextDate(currentDate);
         let prevShiftsData = [];
@@ -1132,12 +1106,10 @@
             
             const row = document.createElement('div'); row.className = 'shift-row';
             
-            // Recalculate workStart based on leave at the beginning (for visual WX positioning)
             let workStart = meta.start; 
             let workEnd = meta.end;
 
             if (shift.leaveRanges && shift.leaveRanges.length > 0) {
-                // Adjust Start: Find leave that starts at or before shift start and push workStart forward
                 let sortedStart = [...shift.leaveRanges].sort((a,b) => timeToOffset(a.start) - timeToOffset(b.start));
                 sortedStart.forEach(r => {
                     let ls = timeToOffset(r.start);
@@ -1145,13 +1117,11 @@
                     let lDur = le - ls; if(lDur < 0) lDur += 1440;
                     let lEndLinear = ls + lDur;
 
-                    // If leave overlaps the current work start, push work start out
                     if (ls <= workStart + 1 && lEndLinear > workStart) {
                         workStart = lEndLinear;
                     }
                 });
 
-                // Adjust End
                 let sortedEnd = [...shift.leaveRanges].sort((a,b) => {
                      let ae = timeToOffset(a.end); let be = timeToOffset(b.end);
                      return be - ae;
@@ -1163,8 +1133,6 @@
                     let lDur = le - ls; if(lDur < 0) lDur += 1440;
                     let lEndLinear = ls + lDur;
                     
-                    // Center text in remaining blue part
-                    // Calculate linear end of this leave relative to shift start
                     let relEnd = lEndLinear - meta.start; if(relEnd < 0) relEnd += 1440;
                     let relWorkEnd = workEnd - meta.start; if(relWorkEnd < 0) relWorkEnd += 1440;
 
@@ -1182,7 +1150,7 @@
             let timeLabel = `${shift.start}-${shift.end} ${durationHours}h`;
 
             const mainBar = document.createElement('div'); mainBar.className = `bar-segment shift-bar ${isTrainee ? 'trainee' : ''}`;
-            mainBar.id = `shift-bar-${index}`; // Unique ID for shading
+            mainBar.id = `shift-bar-${index}`; 
             if (shift._previewing) mainBar.classList.add('preview-highlight');
             mainBar.style.left = `${barLeftPct}%`; mainBar.style.width = `${barWidthPct}%`;
             mainBar.onclick = () => openEditModal(index); mainBar.title = `${displayName} ${timeLabel}`;
@@ -1200,7 +1168,6 @@
                 }
             });
             
-            // PRE-DUTY WX BADGE LOGIC
             let wxHtml = '';
             if (shift.preDutyWx) {
                 let wxLeftPct = 0;
@@ -1213,7 +1180,6 @@
             mainBar.innerHTML = `${wxHtml}<span class="bar-text-container" style="left: ${textLeftPct}%; width: ${textWidthPct}%;"><span class="bar-initials">${displayName}</span><span class="bar-times">${timeLabel}</span></span>${yellowHtml}${stripeHtml}`;
             row.appendChild(mainBar);
 
-            // RENDER MULTIPLE LEAVE BARS
             if (shift.leaveRanges && shift.leaveRanges.length > 0) {
                 shift.leaveRanges.forEach(r => {
                     const lb = createBarElement(r.start, r.end, 'leave-bar', 'LV', `${r.start}-${r.end}`);
@@ -1225,10 +1191,8 @@
                 });
             }
 
-            // RENDER MULTIPLE TOS BARS
             if (shift.tosRanges && shift.tosRanges.length > 0) {
                 shift.tosRanges.forEach(r => {
-                    // Logic to check overlap with Main Shift (meta.start to meta.end)
                     let ts = timeToOffset(r.start);
                     let te = timeToOffset(r.end);
                     let tDur = te - ts; if (tDur < 0) tDur += 1440;
@@ -1238,7 +1202,7 @@
                     if (getOverlap(meta.start, meta.end, ts, tEndLinear) > 0) overlaps = true;
                     if (getOverlap(meta.start, meta.end, ts + 1440, tEndLinear + 1440) > 0) overlaps = true;
 
-                    if (overlaps) return; // Skip rendering
+                    if (overlaps) return; 
 
                     const tb = createBarElement(r.start, r.end, 'tos-bar', 'TOS', `${r.start}-${r.end}`);
                     if(tb) { 
@@ -1251,13 +1215,9 @@
             graphBody.appendChild(row);
         });
 
-        // --- SEPARATE LOOP FOR EMPLOYEE LIST ---
         shifts.forEach((shift, index) => {
             if (shift._hidden) return; 
 
-            // CHANGED HERE: Trainee status in the list is now strictly based on Type/List inclusion.
-            // We removed: if (shift.isStaffing) isTrainee = false; 
-            // This ensures they stay purple in the list even if they count for staffing.
             let isTrainee = shift.type === 'trainee' || trainees.includes(shift.name);
             
             let duration = calculateShiftMeta(shift).end - calculateShiftMeta(shift).start;
@@ -1265,7 +1225,6 @@
 
             let extraTags = '';
             
-            // DEDUPLICATE LEAVE TAGS FOR DISPLAY
             let uniqueLeaves = [];
             if (shift.leaveRanges) {
                 const seen = new Set();
@@ -1276,7 +1235,6 @@
             }
             uniqueLeaves.forEach(r => { extraTags += `<span class="tag-badge tag-leave">LV ${r.start}-${r.end}</span>`; });
 
-            // DEDUPLICATE TOS TAGS FOR DISPLAY
             let uniqueTos = [];
             if (shift.tosRanges) {
                 const seen = new Set();
@@ -1289,53 +1247,38 @@
             
             let notesHtml = shift.notes ? `<div class="emp-notes">📝 ${shift.notes}</div>` : '';
 
-            // --- REST PERIOD CALCULATION ---
             let prevRestHtml = '';
             let nextRestHtml = '';
             
-            // 1. Check Prev Day
             const myPrevShifts = prevShiftsData.filter(s => s.name === shift.name && !s._hidden);
             if (myPrevShifts.length > 0) {
-                // Find latest ending shift
                 let latestEndMins = -Infinity;
                 myPrevShifts.forEach(ps => {
                     let sOffset = timeToOffset(ps.start);
                     let eOffset = timeToOffset(ps.end);
                     let dur = eOffset - sOffset; if (dur < 0) dur += 1440;
-                    // Standardize: Relative to Prev Day 00:00.
-                    // Start offset is relative to 04:00. 04:00 is +240 mins from 00:00.
-                    // Let's assume day boundaries.
-                    // Simpler: Just get end time. 
-                    // Case 1: 1400-2200. End=22:00. Mins from 00:00 = 1320.
-                    // Case 2: 2000-0400. End=04:00 (Next day). Mins = 1680.
-                    // My Offset 0 = 04:00.
-                    let endAbsolute = sOffset + dur; // Relative to 04:00
+                    let endAbsolute = sOffset + dur; 
                     if (endAbsolute > latestEndMins) latestEndMins = endAbsolute;
                 });
                 
-                // Current start relative to 04:00 of *Prev Day*.
                 let currentStartAbs = timeToOffset(shift.start) + 1440;
                 let gapMins = currentStartAbs - latestEndMins;
                 let gapVal = (gapMins / 60).toFixed(1);
                 let gapDisplay = gapVal.endsWith('.0') ? gapVal.slice(0, -2) : gapVal;
                 
-                let redClass = gapMins < 600 ? 'gap-warning' : ''; // 10h = 600m
+                let redClass = gapMins < 600 ? 'gap-warning' : ''; 
                 prevRestHtml = `<div class="emp-notes" style="margin-top:2px;">Previous Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
-             // 2. Check Next Day
             const myNextShifts = nextShiftsData.filter(s => s.name === shift.name && !s._hidden);
             if (myNextShifts.length > 0) {
-                 // Find earliest starting shift
                 let earliestStartMins = Infinity;
                 myNextShifts.forEach(ns => {
                      let sOffset = timeToOffset(ns.start);
-                     // Next Day 04:00 is +1440 from Today 04:00.
                      let startAbsolute = sOffset + 1440;
                      if (startAbsolute < earliestStartMins) earliestStartMins = startAbsolute;
                 });
                 
-                // Current End relative to Today 04:00
                 let cStart = timeToOffset(shift.start);
                 let cEnd = timeToOffset(shift.end);
                 let cDur = cEnd - cStart; if(cDur < 0) cDur += 1440;
@@ -1349,7 +1292,6 @@
                 nextRestHtml = `<div class="emp-notes" style="margin-top:2px;">Next Day: <span class="${redClass}">${gapDisplay}h</span></div>`;
             }
 
-            // --- TRAINER DROPDOWN GENERATION ---
             let trainerSelectHtml = '';
             if (isTrainee) {
                 const activeTrainers = trainers.filter(t => {
@@ -1403,76 +1345,47 @@
             let hourEnd = hourStart + 60;
             let count = 0;
             
-            // actualHour is 0-23 (e.g., 20 for 8pm)
             let actualHour = (START_HOUR + i) % 24;
 
             shifts.forEach(s => {
-                // 1. GLOBAL EXCLUSIONS
-                if (s._hidden) return; // Hidden by user
+                if (s._hidden) return; 
                 
-                // Trainees are ALWAYS excluded from counts
                 let isTrainee = s.type === 'trainee' || trainees.includes(s.name);
-                
-                // 2. Trainee Gate: If trainee and NOT checked, skip immediately.
                 if (isTrainee && !s.isStaffing) return;
 
-                // 3. Determine if this specific hour counts for this person
                 let shouldCount = false;
-
-                // Time Check: 20:00 - 05:00 window
                 const isNight = (actualHour >= 20 || actualHour < 5);
 
                 if (isTrainee) {
-                    // We already passed the gate above. If we are here, s.isStaffing is true.
                     shouldCount = true;
                 } else {
-                    // Non-Trainees
                     if (isNight) {
-                         shouldCount = true; // Everyone counts at night
+                         shouldCount = true; 
                     } else {
-                         // Day Time (05:00 - 19:59)
                          if (s.isCic) {
-                             shouldCount = false; // CICs don't count during day
+                             shouldCount = false; 
                          } else {
-                             shouldCount = s.isStaffing; // CPCs/Sups count if checked
+                             shouldCount = s.isStaffing; 
                          }
                     }
                 }
 
-                // 3. CALCULATE MINUTES PRESENT
                 let minutesPresent = 0;
-
                 let start = timeToOffset(s.start);
                 let endOffset = timeToOffset(s.end);
                 
-                // Calculate accurate linear end time (handling midnight wrap)
                 let duration = endOffset - start;
                 if (duration < 0) duration += 1440;
                 let end = start + duration;
 
-                // --- LAST HOUR RULE LOGIC ---
-                // Rule: Ignore the last 60 mins of the shift...
-                // UNLESS: 
-                // 1. It's the 20:00-21:00 hour (Index 16). User explicitly wants these counted.
-                // 2. The shift ends after 21:00 (Late shifts don't drop off early).
-                // 3. The shift started after 20:00 (Late starts don't drop off).
-                // 4. It is NIGHT (20:00-05:00). We count raw presence at night.
-                
                 let effectiveEnd = end;
-                
-                // Only apply reduction if shift is a "Day/Eve" shift (starts before 20:00)
-                // AND we are strictly in the "Day/Eve" hours (05:00 - 19:59).
-                // If actualHour is >= 20, we disable this rule so people ending at 20:30, 21:00, etc count.
                 if (!isNight && start < 960) {
                      effectiveEnd = end - 60;
                 }
 
-                // Calculate overlap - ONLY if main shift counts
                 let mainOverlap = 0;
                 if (shouldCount) {
                      mainOverlap = getOverlap(start, effectiveEnd, hourStart, hourEnd);
-
-                     // Subtract ALL Leave Ranges
                      if (s.leaveRanges) {
                          s.leaveRanges.forEach(r => {
                              let ls = timeToOffset(r.start);
@@ -1487,7 +1400,6 @@
                 }
                 if (mainOverlap > 0) minutesPresent += mainOverlap;
 
-                // Add ALL TOS Ranges (ALWAYS COUNT, regardless of shouldCount)
                 if (s.tosRanges) {
                     s.tosRanges.forEach(r => {
                         let ts = timeToOffset(r.start);
@@ -1500,13 +1412,11 @@
                     });
                 }
 
-                // 4. FINAL THRESHOLD CHECK
                 if (minutesPresent >= 30) {
                     count++;
                 }
             });
 
-            // Update DOM Elements
             const el = document.getElementById('count-' + i);
             if (el) {
                 el.innerText = count;
@@ -1514,17 +1424,16 @@
                 el.style.backgroundColor = '';
                 el.style.color = count > 0 ? '#3b82f6' : '#ccc';
 
-                // Status Coloring
                 let [y, m, d] = currentDate.split('-').map(Number);
                 let day = new Date(y, m-1, d).getDay(); 
 
-                if (day !== 6) { // Sun-Fri
+                if (day !== 6) { 
                     if (actualHour === 6) { if (count < 4) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 20) { if (count < 8) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); } 
                     else if (actualHour === 22) { if (count < 3) el.classList.add('count-bad'); else el.classList.add('count-good'); }
-                } else { // Saturday
+                } else { 
                     if (actualHour >= 7 && actualHour < 20) { if (count === 6) el.classList.add('count-warning'); else if (count <= 5) el.classList.add('count-bad'); }
                     else if (actualHour === 21) { if (count < 5) el.classList.add('count-bad'); else el.classList.add('count-good'); }
                 }
@@ -1532,12 +1441,10 @@
         }
     }
 
-    // --- MIGRATION ON LOAD ---
     function loadData() { 
         const stored = localStorage.getItem('shifts_' + currentDate); 
         if (stored) {
             shifts = JSON.parse(stored);
-            // MIGRATION: Convert old single-fields to arrays
             shifts.forEach(s => {
                 if (!s.leaveRanges) s.leaveRanges = [];
                 if (s.leaveStart && s.leaveEnd) {
@@ -1638,7 +1545,6 @@
         let exists = shifts.some(s => s.name === name && s.start === start);
         if (exists) return;
 
-        // 20:00 RULE IS RESTORED HERE 
         let h = parseInt(start.substring(0, 2));
         if (h >= 20 && !forceKeep) {
             let prevDate = getPreviousDate(currentDate);
@@ -1655,9 +1561,7 @@
 
         let processedRaw = raw;
 
-        // Automatically set Date if found in clipboard
         if (processedRaw.includes('===DATE===')) {
-            // Regex strictly targeting the ===DATE=== block
             let dateMatch = processedRaw.match(/===DATE===\s*([\s\S]*?)(?====SCHEDULE_START===|===REQUESTS_START===|$)/);
             if (dateMatch && dateMatch[1]) {
                 let d = new Date(dateMatch[1].trim());
@@ -1725,7 +1629,6 @@
         let text = typeof manualContent === 'string' ? manualContent : document.getElementById('pasteInput').value; 
         if(!text.trim()) return;
 
-        // Safely remove the Date block so it doesn't break parsing.
         if (text.includes('===DATE===')) {
              text = text.replace(/===DATE===[\s\S]*?(?====SCHEDULE_START===)/, '');
         }
@@ -1744,12 +1647,12 @@
         let lines = text.split(/\n/);
         let blocks = [];
         let currentBlock = null;
-        let lineCounter = 0;
 
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
-            let match = line.match(timeHeaderRegex);
+            if (!line) continue;
             
+            let match = line.match(timeHeaderRegex);
             if (match) {
                 if (currentBlock) blocks.push(currentBlock);
                 let t = match[1]; 
@@ -1767,13 +1670,8 @@
                     },
                     dataLines: []
                 };
-                lineCounter = 0;
             } else if (currentBlock) {
-                // Capture exactly 3 lines after a time header
-                if (lineCounter < 3) {
-                    currentBlock.dataLines.push(line);
-                    lineCounter++;
-                }
+                currentBlock.dataLines.push(line);
             }
         }
         if (currentBlock) blocks.push(currentBlock);
@@ -1797,8 +1695,7 @@
             let sData = blk.shift;
             let dLines = blk.dataLines; 
             
-            // CPC Line
-            if (dLines[0] && dLines[0].trim() !== '') {
+            if (dLines[0]) {
                 dLines[0].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, ''); 
@@ -1821,11 +1718,10 @@
                     }
 
                     if (isDoubleShift) {
-                        addShift(name, sData.start, sData.end, 'standard', isCic, true, true);
+                        addShift(name, sData.start, sData.end, 'standard', isCic, true);
                     } else {
                         let idx = shifts.findIndex(x => x.name === name && !x._hidden);
                         if (idx !== -1) {
-                             // Note: we don't change existing night shifts here, we only update day shifts.
                              shifts[idx].start = sData.start; 
                              shifts[idx].end = sData.end;
                              shifts[idx].isCic = (isCic || shifts[idx].isCic);
@@ -1836,8 +1732,7 @@
                 });
             }
 
-            // SUP Line
-            if (dLines[1] && dLines[1].trim() !== '') {
+            if (dLines[1]) {
                 dLines[1].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, '');
@@ -1855,8 +1750,7 @@
                 });
             }
 
-            // DEV Line
-            if (dLines[2] && dLines[2].trim() !== '') {
+            if (dLines[2]) {
                 dLines[2].split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, '');
@@ -1873,10 +1767,8 @@
             }
         });
 
-        // Save immediately before processing requests so shifts exist in memory
         saveData(false);
 
-        // Process requests NOW that the shifts have been built
         if (requestsText) {
             processRequests(requestsText);
         }
@@ -1950,7 +1842,6 @@
              const { cpc, cleanFrom, cleanTo, isTos, isLeave, isShiftChg, isApproved, isPendingOrDenied, status, typeRaw } = r;
 
              if (isApproved) {
-                // Cross Day Lookup - Finds the employee on the CURRENT or PREVIOUS day
                 let targetInfo = findEmployeeShiftCrossDay(cpc);
                 let sArray = targetInfo.sArray;
                 let idx = targetInfo.index;
@@ -1962,7 +1853,6 @@
                         if (p) {
                             let h = parseInt(p.start.substring(0,2));
                             if (h >= 20 && !targetInfo.isDifferentDay) {
-                                // Shift moved to night shift, move to previous day
                                 const shiftToMove = { ...sArray[idx], start: p.start, end: p.end, isCic: p.isCic };
                                 sArray.splice(idx, 1); 
                                 let prevDate = getPreviousDate(currentDate);
@@ -1985,7 +1875,7 @@
                     
                     if (isTos) {
                         if (cleanFrom && !cleanTo) {
-                            // Do nothing. Single string extension for someone already on schedule
+                            // Do nothing
                         } else {
                             if(!sArray[idx].tosRanges) sArray[idx].tosRanges = [];
                             addRangeUnique(sArray[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
@@ -2074,14 +1964,6 @@
             document.getElementById('requestInput').value = '';
         }
     }
-
-    // THIS FUNCTION RESTORED TO ALLOW PREVIEWS
-    window.triggerPreview = function(idx) {
-        const req = requests[idx];
-        const li = document.getElementById('pendingList').children[idx];
-        const isTos = ['XTE', 'CTE', 'OT'].some(t => req.type.toUpperCase().includes(t));
-        toggleRequestPreview(li, req.cpc, req.isShiftChg, req.cleanFrom, req.cleanTo, isTos);
-    };
 
     function toggleRequestPreview(li, cpc, isShiftChange, fromStr, toStr, isTos) {
         let targetInfo = findEmployeeShiftCrossDay(cpc);
@@ -2214,7 +2096,6 @@
 
     function parseShiftStringForPreview(str) {
         if (!str) return null;
-        // Bulletproof clean: Strips out @, D, F, etc so time strings are pure numbers/colons
         let clean = str.replace(/[^0-9:-]/g, '');
         let parts = clean.split('-');
         let start = normalizeTime(parts[0]);
@@ -2232,7 +2113,7 @@
                 let endH = (h + 8) % 24; end = `${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
             }
         }
-        return { start, end, isCic: false }; // Cic handled earlier in workflow if needed
+        return { start, end, isCic: false }; 
     }
 
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
@@ -2373,7 +2254,6 @@
                 preDutyWx: document.getElementById('editPreDutyWx').checked
             };
 
-            // 20:00 Move Logic for manual edits
             if (h >= 20) {
                shifts.splice(idx, 1);
                let prevDate = getPreviousDate(currentDate);
