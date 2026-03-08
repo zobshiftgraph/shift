@@ -731,6 +731,7 @@
                  p = parseShiftStringForPreview(combo);
              }
              if (p) {
+                 // Force keep so it displays where pasted, unless standard rules apply
                  addShift(req.cpc, p.start, p.end, 'standard', false, true, true);
              } else {
                  alert("Could not parse time for commit: " + useStart);
@@ -1074,7 +1075,7 @@
             if (!s.start) return; 
 
             let hStart = parseInt(s.start.substring(0,2));
-            if (hStart >= 20 || hStart === 0) return;
+            if (hStart >= 20) return;
 
             let meta = calculateShiftMeta(s);
             if (meta.end >= 900) {
@@ -1663,21 +1664,18 @@
             text = parts[0]; 
         }
         
-        text = text.replace('===SCHEDULE_START===', '').trim();
-        text = text.replace(/(\d+\s+of\s+\d+)(\d{3,4})/g, "$1\n$2"); 
+        text = text.replace('===SCHEDULE_START===', ''); 
 
-        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?([fF])?$/;
-        let lines = text.split(/\n/);
+        let lines = text.split('\n');
         let blocks = [];
-        let currentBlock = null;
+        
+        const timeHeaderRegex = /^(\d{4})(-?(\d{1,2}))?([fF])?$/;
 
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
-            if (!line) continue;
-            
             let match = line.match(timeHeaderRegex);
+            
             if (match) {
-                if (currentBlock) blocks.push(currentBlock);
                 let t = match[1]; 
                 let h = parseInt(t.substring(0, 2)); 
                 let m = parseInt(t.substring(2, 4));
@@ -1685,19 +1683,22 @@
                 if (match[3]) dur = parseInt(match[3]); 
                 let eH = (h + dur) % 24;
                 
-                currentBlock = {
-                    shift: { 
-                        start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
-                        end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
-                        isCic: false 
-                    },
-                    dataLines: []
+                let sData = { 
+                    start: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                    end: `${String(eH).padStart(2,'0')}:${String(m).padStart(2,'0')}`, 
+                    isCic: false 
                 };
-            } else if (currentBlock) {
-                currentBlock.dataLines.push(line);
+                
+                blocks.push({
+                    shift: sData,
+                    cpcLine: lines[i+1] ? lines[i+1].trim() : "",
+                    supLine: lines[i+2] ? lines[i+2].trim() : "",
+                    devLine: lines[i+3] ? lines[i+3].trim() : ""
+                });
+                
+                i += 3;
             }
         }
-        if (currentBlock) blocks.push(currentBlock);
 
         if (blocks.length === 0) {
             if (requestsText) {
@@ -1716,16 +1717,16 @@
 
         blocks.forEach(blk => {
             let sData = blk.shift;
-            let dLines = blk.dataLines; 
             
-            if (dLines[0]) {
-                dLines[0].split(/[\s,\t]+/).forEach(n => {
+            if (blk.cpcLine) {
+                blk.cpcLine.split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, ''); 
                     if (!cleanName || cleanName === '-') return;
 
                     let isCic = sData.isCic; let name = cleanName;
                     if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
+                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
                     
                     let existing = shifts.find(x => x.name === name && !x._hidden);
                     let isDoubleShift = false;
@@ -1755,13 +1756,15 @@
                 });
             }
 
-            if (dLines[1]) {
-                dLines[1].split(/[\s,\t]+/).forEach(n => {
+            if (blk.supLine) {
+                blk.supLine.split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, '');
                     if (!cleanName || cleanName === '-') return;
 
                     let name = cleanName.replace(/[()]/g, ''); 
+                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
+
                     let idx = shifts.findIndex(x => x.name === name && !x._hidden);
                     if (idx !== -1) {
                          shifts[idx].start = sData.start; 
@@ -1773,18 +1776,21 @@
                 });
             }
 
-            if (dLines[2]) {
-                dLines[2].split(/[\s,\t]+/).forEach(n => {
+            if (blk.devLine) {
+                blk.devLine.split(/[\s,\t]+/).forEach(n => {
                     let cleanName = n.replace(/[$]/g, '').trim();
                     cleanName = cleanName.replace(/[\[\]]/g, '');
                     if (!cleanName || cleanName === '-') return;
 
-                    let idx = shifts.findIndex(x => x.name === cleanName && !x._hidden);
+                    let name = cleanName.replace(/[()]/g, ''); 
+                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
+
+                    let idx = shifts.findIndex(x => x.name === name && !x._hidden);
                     if (idx !== -1) {
                          shifts[idx].start = sData.start; 
                          shifts[idx].end = sData.end;
                     } else {
-                        addShift(cleanName, sData.start, sData.end, 'trainee', false, false);
+                        addShift(name, sData.start, sData.end, 'trainee', false, false);
                     }
                 });
             }
