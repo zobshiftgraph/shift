@@ -619,7 +619,7 @@
         }
     }
 
-    // CROSS DAY HELPER - STRICTLY RESTRICTED TO 20:00+ SHIFTS ON PREVIOUS DAY
+    // CROSS DAY HELPER - STRICTLY RESTRICTED TO 20:00+ OR 00:00 SHIFTS ON PREVIOUS DAY
     function findEmployeeShiftCrossDay(cpc) {
         let idx = shifts.findIndex(s => s.name === cpc && !s._hidden);
         if (idx !== -1) return { found: true, isDifferentDay: false, sArray: shifts, index: idx, dateStr: currentDate };
@@ -628,8 +628,11 @@
         let storedP = localStorage.getItem('shifts_' + prevDateStr);
         if (storedP) {
             let pShifts = JSON.parse(storedP);
-            // Added safe check for s.start to prevent crash from corrupted memory
-            let pIdx = pShifts.findIndex(s => s.name === cpc && !s._hidden && s.start && parseInt(s.start.substring(0,2)) >= 20);
+            let pIdx = pShifts.findIndex(s => {
+                if(s.name !== cpc || s._hidden || !s.start) return false;
+                let h = parseInt(s.start.substring(0,2));
+                return (h >= 20 || h === 0);
+            });
             if (pIdx !== -1) return { found: true, isDifferentDay: true, sArray: pShifts, index: pIdx, dateStr: prevDateStr };
         }
         
@@ -728,7 +731,6 @@
                  p = parseShiftStringForPreview(combo);
              }
              if (p) {
-                 // Force keep so it displays where pasted, unless standard rules apply
                  addShift(req.cpc, p.start, p.end, 'standard', false, true, true);
              } else {
                  alert("Could not parse time for commit: " + useStart);
@@ -758,7 +760,7 @@
                     }
                 } else {
                      // Leave (Partial or Full)
-                     if (isFullShiftLeave) {
+                     if (isFullShiftLeave) { 
                          sArray.splice(targetIdx, 1);
                      } else {
                          if(!s.leaveRanges) s.leaveRanges = [];
@@ -1069,11 +1071,10 @@
             if (s.isStaffing) isTrainee = false; 
             if (isTrainee) return;
 
-            // Safe check to prevent crashes from old corrupted data
             if (!s.start) return; 
 
             let hStart = parseInt(s.start.substring(0,2));
-            if (hStart >= 20) return;
+            if (hStart >= 20 || hStart === 0) return;
 
             let meta = calculateShiftMeta(s);
             if (meta.end >= 900) {
@@ -1269,7 +1270,6 @@
             if (myPrevShifts.length > 0) {
                 let latestEndMins = -Infinity;
                 myPrevShifts.forEach(ps => {
-                    // Safe check
                     if(!ps.start) return;
 
                     let sOffset = timeToOffset(ps.start);
@@ -1569,7 +1569,7 @@
         if (exists) return;
 
         let h = parseInt(start.substring(0, 2));
-        if (h >= 20 && !forceKeep) {
+        if ((h >= 20 || h === 0) && !forceKeep) {
             let prevDate = getPreviousDate(currentDate);
             addShiftToStorage(prevDate, newShift);
         } else {
@@ -1875,7 +1875,7 @@
                         let p = parseShiftStringForPreview(r.to);
                         if (p) {
                             let h = parseInt(p.start.substring(0,2));
-                            if (h >= 20 && !targetInfo.isDifferentDay) {
+                            if ((h >= 20 || h === 0) && !targetInfo.isDifferentDay) {
                                 const shiftToMove = { ...sArray[idx], start: p.start, end: p.end, isCic: p.isCic };
                                 sArray.splice(idx, 1); 
                                 let prevDate = getPreviousDate(currentDate);
@@ -1898,7 +1898,7 @@
                     
                     if (isTos) {
                         if (cleanFrom && !cleanTo) {
-                            // Do nothing. 
+                            // Do nothing
                         } else {
                             if(!sArray[idx].tosRanges) sArray[idx].tosRanges = [];
                             addRangeUnique(sArray[idx].tosRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
@@ -2277,7 +2277,7 @@
                 preDutyWx: document.getElementById('editPreDutyWx').checked
             };
 
-            if (h >= 20) {
+            if (h >= 20 || h === 0) {
                shifts.splice(idx, 1);
                let prevDate = getPreviousDate(currentDate);
                addShiftToStorage(prevDate, newShift);
