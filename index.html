@@ -323,7 +323,7 @@
         <button onclick="toggleMenu()" class="secondary">Menu ▼</button>
         <div class="menu-dropdown" id="menuDropdown">
             <button onclick="openManageModal('trainer')">Trainer List</button>
-            <button onclick="openManageModal('trainee')">Trainee List</button>
+            <button onclick="openAddShiftModal()">Add Shift</button>
             <hr style="margin: 0; border: 0; border-top: 1px solid #eee;">
             <button onclick="clearAllDays()" style="color: #dc2626;">Clear All Days</button>
         </div>
@@ -793,6 +793,35 @@
         document.getElementById('manageModal').style.display = 'flex';
         setTimeout(() => document.getElementById('manageInput').focus(), 50);
     }
+    
+    // NEW FUNCTION: Open Add Shift Modal
+    function openAddShiftModal() {
+        document.getElementById('editId').value = '';
+        document.querySelector('#editModal h3').innerText = 'Add Shift';
+        
+        const nameEl = document.getElementById('editName');
+        nameEl.value = '';
+        nameEl.readOnly = false;
+        
+        document.getElementById('editStart').value = '';
+        document.getElementById('editDuration').value = '';
+        document.getElementById('editNotes').value = '';
+        document.getElementById('editStaffing').checked = false;
+        document.getElementById('editPreDutyWx').checked = false;
+        
+        document.getElementById('editLeaveRange').value = '';
+        document.getElementById('previewLeave').innerHTML = '';
+        document.getElementById('editTosRange').value = '';
+        document.getElementById('previewTos').innerHTML = '';
+        
+        document.getElementById('staffingCheckboxWrapper').style.display = 'none';
+        document.getElementById('trainerSelectWrapper').style.display = 'none';
+        document.getElementById('editAssignedTrainer').innerHTML = '<option value="">-- No Trainer --</option>';
+
+        document.getElementById('editModal').style.display = 'flex';
+        document.getElementById('menuDropdown').style.display = 'none';
+    }
+
     function renderManageList() {
         const list = currentManageType === 'trainer' ? trainers : trainees;
         const ul = document.getElementById('manageListEl'); ul.innerHTML = '';
@@ -1075,7 +1104,7 @@
             if (!s.start) return; 
 
             let hStart = parseInt(s.start.substring(0,2));
-            if (hStart >= 20) return;
+            if (hStart >= 20 || hStart === 0) return;
 
             let meta = calculateShiftMeta(s);
             if (meta.end >= 900) {
@@ -1715,85 +1744,71 @@
 
         if (typeof manualContent !== 'string') pushHistory(); 
 
+        const getNames = (lineStr) => {
+            if (!lineStr) return [];
+            return lineStr.split(/[\s,\t]+/).map(n => n.replace(/[$\[\]]/g, '').trim()).filter(n => n && n !== '-');
+        };
+
         blocks.forEach(blk => {
             let sData = blk.shift;
             
-            if (blk.cpcLine) {
-                blk.cpcLine.split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, ''); 
-                    if (!cleanName || cleanName === '-') return;
+            getNames(blk.cpcLine).forEach(name => {
+                let isCic = sData.isCic; 
+                if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
+                if (name.toLowerCase() === 'admin' || name.length > 4) return;
+                
+                let existing = shifts.find(x => x.name === name && !x._hidden);
+                let isDoubleShift = false;
+                if (existing) {
+                    let eEnd = timeToOffset(existing.end);
+                    let eStart = timeToOffset(existing.start);
+                    let dur = eEnd - eStart; if(dur < 0) dur += 1440;
+                    let actualEnd = eStart + dur;
+                    let nStart = timeToOffset(sData.start);
+                    let gap = nStart - actualEnd; 
+                    if (gap < 0) gap += 1440; 
+                    if (gap >= 600) isDoubleShift = true;
+                }
 
-                    let isCic = sData.isCic; let name = cleanName;
-                    if (name.includes('(') && name.includes(')')) { isCic = true; name = name.replace(/[()]/g, ''); }
-                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
-                    
-                    let existing = shifts.find(x => x.name === name && !x._hidden);
-                    let isDoubleShift = false;
-                    if (existing) {
-                        let eEnd = timeToOffset(existing.end);
-                        let eStart = timeToOffset(existing.start);
-                        let dur = eEnd - eStart; if(dur < 0) dur += 1440;
-                        let actualEnd = eStart + dur;
-                        let nStart = timeToOffset(sData.start);
-                        let gap = nStart - actualEnd; 
-                        if (gap < 0) gap += 1440; 
-                        if (gap >= 600) isDoubleShift = true;
-                    }
-
-                    if (isDoubleShift) {
+                if (isDoubleShift) {
+                    addShift(name, sData.start, sData.end, 'standard', isCic, true);
+                } else {
+                    let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                    if (idx !== -1) {
+                         shifts[idx].start = sData.start; 
+                         shifts[idx].end = sData.end;
+                         shifts[idx].isCic = (isCic || shifts[idx].isCic);
+                    } else {
                         addShift(name, sData.start, sData.end, 'standard', isCic, true);
-                    } else {
-                        let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                        if (idx !== -1) {
-                             shifts[idx].start = sData.start; 
-                             shifts[idx].end = sData.end;
-                             shifts[idx].isCic = (isCic || shifts[idx].isCic);
-                        } else {
-                            addShift(name, sData.start, sData.end, 'standard', isCic, true);
-                        }
                     }
-                });
-            }
+                }
+            });
 
-            if (blk.supLine) {
-                blk.supLine.split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, '');
-                    if (!cleanName || cleanName === '-') return;
+            getNames(blk.supLine).forEach(name => {
+                name = name.replace(/[()]/g, ''); 
+                if (name.toLowerCase() === 'admin' || name.length > 4) return;
 
-                    let name = cleanName.replace(/[()]/g, ''); 
-                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
+                let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                if (idx !== -1) {
+                     shifts[idx].start = sData.start; 
+                     shifts[idx].end = sData.end;
+                     shifts[idx].isCic = true;
+                } else {
+                    addShift(name, sData.start, sData.end, 'standard', true, false);
+                }
+            });
 
-                    let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                    if (idx !== -1) {
-                         shifts[idx].start = sData.start; 
-                         shifts[idx].end = sData.end;
-                         shifts[idx].isCic = true;
-                    } else {
-                        addShift(name, sData.start, sData.end, 'standard', true, false);
-                    }
-                });
-            }
+            getNames(blk.devLine).forEach(name => {
+                if (name.toLowerCase() === 'admin' || name.length > 4) return;
 
-            if (blk.devLine) {
-                blk.devLine.split(/[\s,\t]+/).forEach(n => {
-                    let cleanName = n.replace(/[$]/g, '').trim();
-                    cleanName = cleanName.replace(/[\[\]]/g, '');
-                    if (!cleanName || cleanName === '-') return;
-
-                    let name = cleanName.replace(/[()]/g, ''); 
-                    if (name.toLowerCase() === 'admin' || name.length > 4) return;
-
-                    let idx = shifts.findIndex(x => x.name === name && !x._hidden);
-                    if (idx !== -1) {
-                         shifts[idx].start = sData.start; 
-                         shifts[idx].end = sData.end;
-                    } else {
-                        addShift(name, sData.start, sData.end, 'trainee', false, false);
-                    }
-                });
-            }
+                let idx = shifts.findIndex(x => x.name === name && !x._hidden);
+                if (idx !== -1) {
+                     shifts[idx].start = sData.start; 
+                     shifts[idx].end = sData.end;
+                } else {
+                    addShift(name, sData.start, sData.end, 'trainee', false, false);
+                }
+            });
         });
 
         saveData(false);
@@ -2184,9 +2199,40 @@
             wrapper.style.display = 'flex'; trainerWrapper.style.display = 'block'; trainerSelect.innerHTML = '<option value="">-- No Trainer --</option>';
             trainers.forEach(t => { const opt = document.createElement('option'); opt.value = t; opt.innerText = t; if(s.assignedTrainer === t) opt.selected = true; trainerSelect.appendChild(opt); });
         } else { wrapper.style.display = 'none'; trainerWrapper.style.display = 'none'; }
+        
+        document.getElementById('editName').readOnly = true;
+        document.querySelector('#editModal h3').innerText = 'Edit Shift';
+        
         document.getElementById('editModal').style.display = 'flex';
     }
     
+    function openAddShiftModal() {
+        document.getElementById('editId').value = '';
+        document.querySelector('#editModal h3').innerText = 'Add Shift';
+        
+        const nameEl = document.getElementById('editName');
+        nameEl.value = '';
+        nameEl.readOnly = false;
+        
+        document.getElementById('editStart').value = '';
+        document.getElementById('editDuration').value = '';
+        document.getElementById('editNotes').value = '';
+        document.getElementById('editStaffing').checked = false;
+        document.getElementById('editPreDutyWx').checked = false;
+        
+        document.getElementById('editLeaveRange').value = '';
+        document.getElementById('previewLeave').innerHTML = '';
+        document.getElementById('editTosRange').value = '';
+        document.getElementById('previewTos').innerHTML = '';
+        
+        document.getElementById('staffingCheckboxWrapper').style.display = 'none';
+        document.getElementById('trainerSelectWrapper').style.display = 'none';
+        document.getElementById('editAssignedTrainer').innerHTML = '<option value="">-- No Trainer --</option>';
+
+        document.getElementById('editModal').style.display = 'flex';
+        document.getElementById('menuDropdown').style.display = 'none';
+    }
+
     function handleTagKey(event, type) {
         if(event.key === 'Enter') {
             manualAddTag(type);
@@ -2244,33 +2290,37 @@
     function saveEdit() {
         pushHistory();
         const idx = document.getElementById('editId').value;
+        const rawName = document.getElementById('editName').value.trim();
+        
+        if (!rawName) { alert("Name is required"); return; }
+        
+        const startVal = normalizeTime(document.getElementById('editStart').value);
+        const durVal = parseFloat(document.getElementById('editDuration').value);
+        
+        if (!startVal || isNaN(durVal)) { alert("Invalid Start Time or Duration"); return; }
+   
+        let h = parseInt(startVal.substring(0,2));
+        let m = parseInt(startVal.substring(3,5));
+        let totalStart = (h * 60) + m;
+        let totalEnd = totalStart + (durVal * 60);
+        
+        let eh = Math.floor(totalEnd / 60) % 24;
+        let em = Math.round(totalEnd % 60);
+        let endVal = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
+   
+        let leaveRanges = [];
+        document.querySelectorAll('#previewLeave .modal-tag').forEach(t => {
+            const parts = t.getAttribute('data-range').split('-');
+            leaveRanges.push({start: parts[0], end: parts[1]});
+        });
+
+        let tosRanges = [];
+        document.querySelectorAll('#previewTos .modal-tag').forEach(t => {
+            const parts = t.getAttribute('data-range').split('-');
+            tosRanges.push({start: parts[0], end: parts[1]});
+        });
+
         if (idx !== '') {
-            const startVal = normalizeTime(document.getElementById('editStart').value);
-            const durVal = parseFloat(document.getElementById('editDuration').value);
-            
-            if (!startVal || isNaN(durVal)) { alert("Invalid Start Time or Duration"); return; }
-   
-            let h = parseInt(startVal.substring(0,2));
-            let m = parseInt(startVal.substring(3,5));
-            let totalStart = (h * 60) + m;
-            let totalEnd = totalStart + (durVal * 60);
-            
-            let eh = Math.floor(totalEnd / 60) % 24;
-            let em = Math.round(totalEnd % 60);
-            let endVal = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
-   
-            let leaveRanges = [];
-            document.querySelectorAll('#previewLeave .modal-tag').forEach(t => {
-                const parts = t.getAttribute('data-range').split('-');
-                leaveRanges.push({start: parts[0], end: parts[1]});
-            });
-
-            let tosRanges = [];
-            document.querySelectorAll('#previewTos .modal-tag').forEach(t => {
-                const parts = t.getAttribute('data-range').split('-');
-                tosRanges.push({start: parts[0], end: parts[1]});
-            });
-
             let s = shifts[idx];
             const newShift = {
                 ...s,
@@ -2294,6 +2344,36 @@
 
             shifts[idx] = newShift;
             saveData(false); closeModal('editModal');
+        } else {
+            let isCic = false;
+            let cleanName = rawName.toUpperCase();
+            if (cleanName.includes('(') && cleanName.includes(')')) {
+                isCic = true;
+                cleanName = cleanName.replace(/[()]/g, '');
+            }
+
+            const newShift = {
+                name: cleanName,
+                start: startVal,
+                end: endVal,
+                type: 'standard', 
+                isCic: isCic,
+                isStaffing: document.getElementById('editStaffing').checked,
+                notes: document.getElementById('editNotes').value,
+                leaveRanges: leaveRanges,
+                tosRanges: tosRanges,
+                assignedTrainer: document.getElementById('editAssignedTrainer').value,
+                preDutyWx: document.getElementById('editPreDutyWx').checked
+            };
+
+            if (h >= 20 || h === 0) {
+               let prevDate = getPreviousDate(currentDate);
+               addShiftToStorage(prevDate, newShift);
+            } else {
+               shifts.push(newShift);
+            }
+            saveData(false); 
+            closeModal('editModal');
         }
     }
 </script>
