@@ -75,6 +75,7 @@
         .stat-box { display: flex; align-items: center; color: black; }
         .stat-warning { color: var(--warning-color) !important; } 
         .stat-danger { color: var(--danger-color) !important; }
+        .stat-good { color: #16a34a !important; }
 
         input[type="date"] { padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
 
@@ -998,11 +999,13 @@
         let yEndMins = endOffset; 
         let yStartMins = endOffset - 60; 
 
+        // Check multiple leave ranges for yellow bar logic
         if (shift.leaveRanges && shift.leaveRanges.length > 0) {
             shift.leaveRanges.forEach(r => {
                 const ls = timeToOffset(r.start); 
                 const le = timeToOffset(r.end);
                 let diff = endOffset - le; if (diff < -1000) diff += 1440; 
+                // If this leave block ends within 30 mins of shift end, it truncates the shift visual
                 if (Math.abs(diff) <= 30) { yEndMins = ls; yStartMins = ls - 60; }
             });
         }
@@ -1116,13 +1119,16 @@
 
         if (dayCount <= 6) dayEl.classList.add('stat-danger');
         else if (dayCount === 7) dayEl.classList.add('stat-warning');
+        else if (dayCount >= 9) dayEl.classList.add('stat-good');
 
         if (dayOfWeek === 6) { 
             if (eveCount <= 6) eveEl.classList.add('stat-danger');
             else if (eveCount === 7) eveEl.classList.add('stat-warning');
+            else if (eveCount >= 9) eveEl.classList.add('stat-good');
         } else { 
             if (eveCount <= 7) eveEl.classList.add('stat-danger');
             else if (eveCount === 8) eveEl.classList.add('stat-warning');
+            else if (eveCount >= 10) eveEl.classList.add('stat-good');
         }
 
         dayEl.innerText = `Day: ${dayCount}`;
@@ -1869,13 +1875,6 @@
             });
         });
 
-        const approvedFullLeaves = new Set();
-        parsedRows.forEach(r => {
-            if (r.isApproved && r.isLeave && r.cleanFrom.toLowerCase() === 'shift') {
-                approvedFullLeaves.add(r.cpc);
-            }
-        });
-
         const addRangeUnique = (arr, newR) => {
             if (!arr.some(r => r.start === newR.start && r.end === newR.end)) {
                 arr.push(newR);
@@ -1933,10 +1932,6 @@
                             addRangeUnique(sArray[idx].leaveRanges, {start: normalizeTime(cleanFrom), end: normalizeTime(cleanTo)});
                             changesMade = true;
                             if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
-                        } else {
-                            sArray.splice(idx, 1);
-                            changesMade = true;
-                            if(targetInfo.isDifferentDay) localStorage.setItem('shifts_' + targetInfo.dateStr, JSON.stringify(sArray));
                         }
                     } 
                 } 
@@ -1964,8 +1959,10 @@
              else if (isPendingOrDenied) {
                  const isDenied = status.toLowerCase().includes('denied');
                  const isFullLeaveReq = isLeave && cleanFrom.toLowerCase() === 'shift';
-
-                 if (isDenied && isFullLeaveReq && approvedFullLeaves.has(cpc)) {
+                 
+                 // Check if they exist on the current schedule first to filter out the request.
+                 let targetInfo = findEmployeeShiftCrossDay(cpc);
+                 if (isDenied && isFullLeaveReq && targetInfo.index !== -1) {
                      return; 
                  }
 
