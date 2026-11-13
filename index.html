@@ -1431,7 +1431,7 @@
   // ── Timeline constants ──
   let VIEW_START = 4;
   let VIEW_END = 26;
-  const BUILD_ID = 'areas-2026-11-13a';
+  const BUILD_ID = 'areas-2026-11-13b';
   const OD_BAR = { bg: 'rgba(142, 201, 242, 0.95)', text: '#14324a' };
 
   const DEFAULT_STAFFING_TARGETS = { day: 10, eve: 10 };
@@ -5523,7 +5523,17 @@
       const empMap = Object.fromEntries(defaultOrder);
       const ordered = savedOrder.filter(k => empMap[k]).map(k => [k, empMap[k]]);
       const newRows = defaultOrder.filter(([k]) => !savedOrder.includes(k));
-      sortedEmployees = [...ordered, ...newRows];
+      // Slot each new row (e.g. from + Add Shift) where it sorts by start time,
+      // just before the first existing row that would sort after it.
+      const defaultIdx = Object.fromEntries(defaultOrder.map(([k], i) => [k, i]));
+      newRows.forEach(entry => {
+        const idx = defaultIdx[entry[0]];
+        const at = ordered.findIndex(([k]) => defaultIdx[k] > idx);
+        if (at === -1) ordered.push(entry);
+        else ordered.splice(at, 0, entry);
+      });
+      if (newRows.length) rowOrderByDate[sortDate] = ordered.map(([k]) => k);
+      sortedEmployees = ordered;
       const dayRows   = sortedEmployees.filter(([, shifts]) => shifts.every(s => isDayRowShift(s)));
       const nightRows = sortedEmployees.filter(([, shifts]) => shifts.some(s  => isNightRowShift(s)));
       sortedEmployees = [...dayRows, ...nightRows];
