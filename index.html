@@ -1431,7 +1431,7 @@
   // ── Timeline constants ──
   let VIEW_START = 4;
   let VIEW_END = 26;
-  const BUILD_ID = 'areas-2026-11-13b';
+  const BUILD_ID = 'areas-2026-11-13c';
   const OD_BAR = { bg: 'rgba(142, 201, 242, 0.95)', text: '#14324a' };
 
   const DEFAULT_STAFFING_TARGETS = { day: 10, eve: 10 };
@@ -2212,7 +2212,7 @@
   }
 
   function importPayPeriodHTML(text) {
-    const keepDate = getActiveDate();
+    const keepDate = localDateStr(); // after a paste, show today (same as the Today button)
     const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
     if (normalized.includes('===DATE===') && normalized.includes('===SCHEDULE_START===')) {
       importFromText(text);
@@ -2428,7 +2428,7 @@
   }
 
   function importPayPeriodCompact(text) {
-    const keepDate = getActiveDate();
+    const keepDate = localDateStr(); // after a paste, show today (same as the Today button)
     const lines = text.split('\n').map(l => l.trim().replace(/\r/g, '')).filter(Boolean);
     const ppIdx = lines.indexOf('===PAY_PERIOD===');
     const schIdx = lines.indexOf('===PP_SCHEDULE===');
@@ -4276,7 +4276,7 @@
 
   function importFromText(raw) {
     const btn = document.getElementById('pasteBtn');
-    const keepDate = getActiveDate();
+    const keepDate = localDateStr(); // after a paste, show today (same as the Today button)
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
     if (normalized.includes('===PAY_PERIOD===')) {
